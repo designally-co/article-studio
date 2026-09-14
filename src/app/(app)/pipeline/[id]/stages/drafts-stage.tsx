@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { Markdown } from "@/components/markdown";
 import { streamNdjson } from "@/lib/ndjson-client";
-import { ApiNotReady, StageShell } from "./stage-shell";
+import { ApiNotReady, RAIL_COLUMN, RAIL_CONTENT, RAIL_GRID, StageShell } from "./stage-shell";
 import { ArrowRight, Eye, Pencil, X } from "lucide-react";
 import { SHEET_CLEARANCE, StageAction, StageSheet } from "./stage-mobile";
 import { ConfirmDialog } from "@/components/confirm-dialog";
@@ -352,21 +352,23 @@ export function DraftsStage({
 
   return (
     <StageShell title="Draft & edit" wide>
-      {/* THE SAME TWO COLUMNS AS PUBLISH — minmax(0,1fr) and a 360px rail — so
-          the action sits in one place across the pipeline instead of moving
-          from a bar under the article to a panel beside it between stages.
+      {/* THE SAME LAYOUT AS IMAGES AND PUBLISH — the article in the middle, the
+          360px rail at the container's right edge (see RAIL_GRID) — so the action sits in
+          one place across the pipeline instead of moving from a bar under the
+          article to a panel beside it between stages. An article reads at a
+          measure, so its track is the narrowest of the three.
 
           The rail is permanent. It used to appear only when the revisions
           drawer opened, which meant asking to see revisions reflowed the whole
           page and narrowed the article you were reading. Revisions drop INTO
           the rail now; the layout does not move. */}
-      <div className={`grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start lg:gap-8 ${SHEET_CLEARANCE}`}>
+      <div className={`${RAIL_GRID} lg:[--rail-content:52rem] ${SHEET_CLEARANCE}`}>
         {/* Tray and plate. The article is the product on this screen, so it is
             seated as an object rather than boxed by a header and footer strip. */}
         {/* The plate and the line that reports on it. Wrapped, because the grid
             gives this column one child and the status now sits outside the
             article rather than in its header. */}
-        <div className="min-w-0">
+        <div className={RAIL_CONTENT}>
         <article className="cs-bezel motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-4 motion-safe:duration-500">
           <div className="cs-bezel-core relative">
             {/* NO TITLE HERE. "Article draft" sat in 20px semibold at the top of
@@ -472,7 +474,7 @@ export function DraftsStage({
             thousand pixel article, which put the button that leaves the stage
             below every word of it. Its two panels become a corner button and a
             pull-up sheet instead — same content, no vertical cost. */}
-        <div className="hidden space-y-6 lg:block lg:sticky lg:top-[4.5rem]">
+        <div className={`hidden space-y-6 lg:block lg:sticky lg:top-[4.5rem] ${RAIL_COLUMN}`}>
           <section className="cs-bezel">
             <div className="cs-bezel-core p-5">
               {/* NAME THE WORK, IN THE VERB THE READER WOULD USE. "Next step"

@@ -6,7 +6,7 @@ import { ArrowRight, ExternalLink, LoaderCircle, Maximize2, Minimize2, Send, X }
 import { Markdown } from "@/components/markdown";
 import { CopyButton } from "@/components/copy-button";
 import { DropdownMenu } from "radix-ui";
-import { StageShell } from "./stage-shell";
+import { RAIL_COLUMN, RAIL_CONTENT, RAIL_GRID, StageShell } from "./stage-shell";
 import {
   STAGE_ACTION_BUTTON,
   STAGE_ACTION_SLOT,
@@ -823,7 +823,9 @@ function ImagePanel({
        screen. It is on the panel and not the route, because Draft and
        Publish are documents and scroll like them. The sheet scrolls inside
        itself and is unaffected. */
-    <div data-fits-viewport="" className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start lg:gap-8">
+    /* The picture's track is wider than the article's: a cover is judged at
+       size, and the dock under it holds a prompt and a row of controls. */
+    <div data-fits-viewport="" className={`${RAIL_GRID} lg:[--rail-content:56rem]`}>
       {/* NO PLATE HERE, unlike Draft and Publish. Those two hold a DOCUMENT —
           an article, a preview of one — and a plate is what a document sits on.
           This stage holds a picture and a box to describe it in, and both of
@@ -859,7 +861,7 @@ function ImagePanel({
           hung that far above the sheet. The page is locked here, so the bar
           never collapses on scroll and the dynamic unit is stable. */}
       <section
-        className="flex h-[calc(100dvh-10.125rem)] flex-col overflow-hidden transition-transform duration-(--duration-base) ease-(--ease-out) lg:h-auto lg:min-h-[calc(100svh-9rem)] lg:translate-y-0 lg:overflow-visible"
+        className={`flex h-[calc(100dvh-10.125rem)] flex-col overflow-hidden transition-transform duration-(--duration-base) ease-(--ease-out) lg:h-auto lg:min-h-[calc(100svh-9rem)] lg:translate-y-0 lg:overflow-visible ${RAIL_CONTENT}`}
         style={sheetLift ? { transform: `translateY(-${sheetLift}px)` } : undefined}
       >
           {/* THE ARTICLE'S NAME, which this stage used to be the only one
@@ -1253,7 +1255,7 @@ function ImagePanel({
             the column moving rather than holding. */}
         {/* Hidden on a phone: its two panels become a corner button and a
             pull-up sheet, so the rail costs no vertical space at all. */}
-        <div className="hidden space-y-6 lg:block lg:sticky lg:top-[4.5rem]">
+        <div className={`hidden space-y-6 lg:block lg:sticky lg:top-[4.5rem] ${RAIL_COLUMN}`}>
         <section className="cs-bezel">
           <div className="cs-bezel-core p-5">
             {/* Named by the work you do next, like every other panel in the
@@ -1490,7 +1492,9 @@ function PublishComposer({
   const readMinutes = Math.max(1, Math.round(countMetrics(draftMd).words / 220));
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start lg:gap-8">
+    /* The widest track of the three: the Hub preview is a whole page scaled
+       into it, and it is only legible given room. */
+    <div className={`${RAIL_GRID} lg:[--rail-content:64rem]`}>
       {/* No label above the preview: it renders the Hub's own masthead and
           chrome, which says what it is more convincingly than a caption. */}
       {/* THE PREVIEW SCROLLS, NOT THE PAGE — which is the only way to get the
@@ -1535,7 +1539,7 @@ function PublishComposer({
           40px short of its compact bottom bar, so the scroll box ended above
           the sheet's ledge with a band of ground showing under it instead of
           running beneath the sheet. `dvh` is the screen as it is now. */}
-      <div className="min-w-0 -mt-20 h-dvh overflow-y-auto pb-[4.75rem] pt-20 [scrollbar-width:none] lg:mt-0 lg:h-auto lg:overflow-visible lg:pb-0 lg:pt-0 [&::-webkit-scrollbar]:hidden">
+      <div className={`-mt-20 h-dvh overflow-y-auto pb-[4.75rem] pt-20 [scrollbar-width:none] lg:mt-0 lg:h-auto lg:overflow-visible lg:pb-0 lg:pt-0 [&::-webkit-scrollbar]:hidden ${RAIL_CONTENT}`}>
         <HubPreviewFrame>
           <HubArticlePreview
             title={title}
@@ -1552,7 +1556,7 @@ function PublishComposer({
 
       {/* Clears the floating pill (68px) and its scrim, which is only fully
           transparent at 112px — top-24 parked the rail behind a partial veil. */}
-      <div className="contents lg:block lg:sticky lg:top-[4.5rem]">
+      <div className={`contents lg:block lg:sticky lg:top-[4.5rem] ${RAIL_COLUMN}`}>
         <PublishRail
           projectId={projectId}
           publish={publish}
