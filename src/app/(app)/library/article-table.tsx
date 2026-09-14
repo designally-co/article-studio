@@ -15,6 +15,7 @@ import {
 import type { ProjectStatus } from "@/db/schema";
 import { deleteArticlesAction } from "./actions";
 import { LibraryItem, LibraryRow } from "./library-row";
+import { SortHead } from "./sort-head";
 
 export type ArticleRow = {
   id: string;
@@ -38,7 +39,7 @@ export type ArticleRow = {
  * means a Delete button reporting a number you cannot check against anything on
  * screen, which is exactly the situation where a bulk delete goes wrong.
  */
-export function ArticleTable({ rows }: { rows: ArticleRow[] }) {
+export function ArticleTable({ rows, sort }: { rows: ArticleRow[]; sort: string }) {
   const router = useRouter();
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [confirming, setConfirming] = useState(false);
@@ -150,10 +151,18 @@ export function ArticleTable({ rows }: { rows: ArticleRow[] }) {
                   aria-label={allSelected ? "Clear selection" : "Select all articles on this page"}
                 />
               </TableHead>
-              <TableHead className="px-4 text-ink-3">Title</TableHead>
-              <TableHead className="hidden px-4 text-ink-3 sm:table-cell">Direction</TableHead>
-              <TableHead className="px-4 text-ink-3">Status</TableHead>
-              <TableHead className="hidden px-4 text-ink-3 md:table-cell">Updated</TableHead>
+              <TableHead className="px-4 text-ink-3">
+                <SortHead label="Title" field="title" sort={sort} />
+              </TableHead>
+              <TableHead className="hidden px-4 text-ink-3 sm:table-cell">
+                <SortHead label="Direction" field="direction" sort={sort} />
+              </TableHead>
+              <TableHead className="px-4 text-ink-3">
+                <SortHead label="Status" field="status" sort={sort} />
+              </TableHead>
+              <TableHead className="hidden px-4 text-ink-3 md:table-cell">
+                <SortHead label="Updated" field="updated" sort={sort} />
+              </TableHead>
               {/* The delete control's column. Named for assistive technology,
                   blank on screen: a header that said "Actions" would be a word
                   wider than the thing beneath it. */}

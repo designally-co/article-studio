@@ -102,26 +102,28 @@ export default async function LibraryPage({
     imageUrlByProject.set(projectId, direct ?? `/api/images/${imageId}`);
   }
 
-  const sort = [
-    "updated_desc",
-    "created_desc",
-    "title_asc",
-    "title_desc",
-  ].includes(sp.sort)
-    ? sp.sort
-    : "updated_desc";
+  /* `field_dir`, set by the column headings (SortHead). Anything else — a
+     hand-edited URL, an old bookmark — is the default, newest first. The older
+     `created_desc` and `title_asc`/`title_desc` still parse. */
+  const SORT_FIELDS = ["title", "direction", "status", "updated", "created"];
+  const [sortField, sortDir] = (sp.sort ?? "").split("_");
+  const sort =
+    SORT_FIELDS.includes(sortField) && (sortDir === "asc" || sortDir === "desc")
+      ? `${sortField}_${sortDir}`
+      : "updated_desc";
+  const [field, dir] = sort.split("_");
+  const byText = (x: string, y: string) => x.localeCompare(y, undefined, { sensitivity: "base" });
   rows.sort((a, b) => {
-    if (sort === "created_desc")
-      return b.createdAt.getTime() - a.createdAt.getTime();
-    if (sort === "title_asc" || sort === "title_desc") {
-      const comparison = (a.topic?.title || "Untitled project").localeCompare(
-        b.topic?.title || "Untitled project",
-        undefined,
-        { sensitivity: "base" },
-      );
-      return sort === "title_asc" ? comparison : -comparison;
-    }
-    return b.updatedAt.getTime() - a.updatedAt.getTime();
+    let comparison = 0;
+    if (field === "title") comparison = byText(a.topic?.title || "Untitled project", b.topic?.title || "Untitled project");
+    else if (field === "direction") comparison = byText(a.categoryName || "Uncategorized", b.categoryName || "Uncategorized");
+    else if (field === "status") comparison = byText(a.status, b.status);
+    else if (field === "created") comparison = a.createdAt.getTime() - b.createdAt.getTime();
+    else comparison = a.updatedAt.getTime() - b.updatedAt.getTime();
+    // Ties — every draft, when sorting by status — fall back to newest first,
+    // so the order within a group is still one the reader recognises.
+    if (comparison === 0) return b.updatedAt.getTime() - a.updatedAt.getTime();
+    return dir === "asc" ? comparison : -comparison;
   });
   const hasActiveFilters = Boolean(sp.category || sp.status || query);
 
@@ -225,7 +227,7 @@ export default async function LibraryPage({
             }
           />
         ) : (
-          <ArticleTable rows={pageRows.map(toItemProps)} />
+          <ArticleTable rows={pageRows.map(toItemProps)} sort={sort} />
         )}
 
         {rows.length > 0 && (
