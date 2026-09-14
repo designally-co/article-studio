@@ -214,7 +214,10 @@ export function PillarDirectionPicker({
 function MenuItem({ className = "", ...props }: React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Item>) {
   return (
     <DropdownMenuPrimitive.Item
-      className={`flex min-h-11 cursor-default select-none items-center gap-3 rounded-xl px-3 py-2 text-sm font-semibold outline-none transition-colors data-highlighted:bg-sunken data-disabled:pointer-events-none data-disabled:opacity-50 ${className}`}
+      /* 500, the weight of the pillar pills on the Create page. At 600 the
+         menu's rows were heavier than the pills they open from and the list
+         read as a column of headings. */
+      className={`flex min-h-11 cursor-default select-none items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium outline-none transition-colors data-highlighted:bg-sunken data-disabled:pointer-events-none data-disabled:opacity-50 ${className}`}
       {...props}
     />
   );

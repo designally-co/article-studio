@@ -5,7 +5,6 @@ import { ArrowUp, LoaderCircle, Maximize2, Minimize2, RefreshCw, Sparkle } from 
 import { Button } from "@/components/ui/button";
 import { PageHeading } from "@/components/page-heading";
 import { PageBar, PAGE_ACTION_BUTTON_QUIET } from "@/components/page-bar";
-import { AccentOrb } from "@/components/accent-orb";
 import OrbitingCirclesGlobe from "@/components/ui/orbiting-circles-02";
 import { createProjectAction, inferArticleSetupAction } from "./actions";
 import { streamNdjson } from "@/lib/ndjson-client";
@@ -29,9 +28,15 @@ export function SetupForm({ pillars, anthropicReady }: { pillars: PillarGroup[];
   const [inputNeedsExpansion, setInputNeedsExpansion] = useState(false);
   const [selection, setSelection] = useState<Selection>({ pillarId: "", directionId: "" });
   const [pickerOpen, setPickerOpen] = useState(false);
-  // The "No idea?" card's own copy of the picker. Same selection, separate
-  // open state — one state for both would open both menus at once.
+  /* THE CARD'S DIRECTION IS ITS OWN. The card asks for ideas; the dock's picker
+     says which direction a topic the editor TYPED belongs to. Two questions, so
+     two selections — sharing one meant choosing a direction for a brief quietly
+     narrowed the ideas the card would find, and the other way round. */
+  const [cardSelection, setCardSelection] = useState<Selection>({ pillarId: "", directionId: "" });
   const [cardPickerOpen, setCardPickerOpen] = useState(false);
+  // The direction the last ideas request was scoped to, so Regenerate asks the
+  // same question again whichever control asked it the first time.
+  const [ideasDirectionId, setIdeasDirectionId] = useState("");
   const [topics, setTopics] = useState<TopicIdea[]>([]);
   const [generatingTopics, setGeneratingTopics] = useState(false);
   const [searchSlow, setSearchSlow] = useState(false);
@@ -44,6 +49,8 @@ export function SetupForm({ pillars, anthropicReady }: { pillars: PillarGroup[];
 
   const selectedPillar = pillars.find((pillar) => pillar.id === selection.pillarId);
   const selectedDirection = selectedPillar?.directions.find((direction) => direction.id === selection.directionId);
+  const cardPillar = pillars.find((pillar) => pillar.id === cardSelection.pillarId);
+  const cardDirection = cardPillar?.directions.find((direction) => direction.id === cardSelection.directionId);
   // The composer owns the page until the editor asks for ideas. From that point
   // the search and its results are the page, and the way back is explicit.
   const showComposer = topics.length === 0 && !generatingTopics;
@@ -63,18 +70,24 @@ export function SetupForm({ pillars, anthropicReady }: { pillars: PillarGroup[];
     return () => clearTimeout(timer);
   }, [generatingTopics]);
 
-  /* Two ways in. The dock's button asks within the chosen direction, or the
-     whole territory if none is chosen. A pillar card asks within that pillar
-     and ignores the direction picker — the card is the scope, and having it
-     silently narrowed by a picker the editor set earlier would make the card
-     answer a question it did not ask. */
-  async function generateTopics(pillar: PillarGroup | null = ideasPillar) {
+  /* Two ways in. The "No topic yet?" card asks within the direction its own
+     dropdown is set to, or the whole territory on Auto. A pillar pill asks
+     within that pillar and ignores any direction — the pill is the scope.
+     Neither reads the dock's picker, which belongs to a typed topic.
+
+     Called with no arguments (Regenerate), it repeats the last request's
+     scope. */
+  async function generateTopics(
+    pillar: PillarGroup | null = ideasPillar,
+    directionId: string = ideasDirectionId
+  ) {
     setGeneratingTopics(true);
     setSearchSlow(false);
     setError(null);
     setIdeasPillar(pillar);
+    setIdeasDirectionId(pillar ? "" : directionId);
     const body = {
-      categoryId: pillar ? undefined : selection.directionId || undefined,
+      categoryId: pillar ? undefined : directionId || undefined,
       pillarSlug: pillar?.slug,
       language: "en",
     };
@@ -381,12 +394,12 @@ export function SetupForm({ pillars, anthropicReady }: { pillars: PillarGroup[];
                       ideas list uses for a card whose title is its link. */}
                   <button
                     type="button"
-                    onClick={() => void generateTopics(null)}
+                    onClick={() => void generateTopics(null, cardSelection.directionId)}
                     disabled={ideasBusy}
                     className="cs-idea-card-title"
                     aria-label={
-                      selectedDirection
-                        ? `Generate ideas in ${selectedDirection.name}`
+                      cardDirection
+                        ? `Generate ideas in ${cardDirection.name}`
                         : "Generate ideas with auto direction"
                     }
                   >
@@ -400,36 +413,35 @@ export function SetupForm({ pillars, anthropicReady }: { pillars: PillarGroup[];
                   {/* WHICH DIRECTION, CHOSEN BEFORE PRESSING. Auto until somebody
                       picks one, and then it says which — the pill is the value
                       and the way to change it. It sits above the card's stretched
-                      button as a control of its own, and shares its selection
-                      with the dock's picker, so the two can never disagree. */}
+                      button as a control of its own, with a selection of its own:
+                      the dock's picker is for a typed topic and does not move it. */}
                   <PillarDirectionPicker
                     pillars={pillars}
-                    selection={selection}
+                    selection={cardSelection}
                     open={cardPickerOpen}
                     onOpenChange={setCardPickerOpen}
-                    onChange={(next) => {
-                      setSelection(next);
-                      setTopics([]);
-                    }}
+                    onChange={setCardSelection}
                   >
                     <button
                       type="button"
                       className="cs-idea-card-btn"
-                      aria-label={`Content direction: ${selectedDirection?.name ?? "Auto direction"}`}
+                      aria-label={`Content direction for ideas: ${cardDirection?.name ?? "Auto direction"}`}
                     >
-                      {selectedPillar ? (
+                      {cardPillar ? (
                         (() => {
-                          const Icon = pillarIcon(selectedPillar.slug);
+                          const Icon = pillarIcon(cardPillar.slug);
                           return <Icon aria-hidden className="size-4 shrink-0" strokeWidth={1.8} />;
                         })()
                       ) : (
-                        /* THE ORB FOR "AUTO". Nobody has chosen, so the studio
-                           will — the same thinking mark the app uses wherever the
-                           model is the one deciding. A chosen direction swaps it
-                           for that pillar's icon. */
-                        <AccentOrb size={20} state="searching" />
+                        /* THE STAR FOR "AUTO" — the same mark the dock's picker
+                           and the menu's Auto direction row wear, so the three
+                           read as one control. Filled and unstroked for the
+                           reason given at the dock: an outlined four-point star
+                           this small closes up into a cross. A chosen direction
+                           swaps it for that pillar's icon. */
+                        <Sparkle aria-hidden className="size-4 shrink-0" fill="currentColor" strokeWidth={0} />
                       )}
-                      <span className="min-w-0 truncate">{selectedDirection?.name ?? "Auto Direction"}</span>
+                      <span className="min-w-0 truncate">{cardDirection?.name ?? "Auto Direction"}</span>
                     </button>
                   </PillarDirectionPicker>
                 </div>
@@ -449,7 +461,7 @@ export function SetupForm({ pillars, anthropicReady }: { pillars: PillarGroup[];
                     <button
                       key={pillar.id}
                       type="button"
-                      onClick={() => void generateTopics(pillar)}
+                      onClick={() => void generateTopics(pillar, "")}
                       disabled={ideasBusy}
                       data-pillar={pillar.slug}
                       style={{ animationDelay: `${60 + index * 45}ms` }}
@@ -556,7 +568,7 @@ export function SetupForm({ pillars, anthropicReady }: { pillars: PillarGroup[];
 
                      Both states are 40 tall, so choosing a direction does not
                      change the height of the row the dock's actions sit on. */
-                  className={`inline-flex items-center rounded-full text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50 ${
+                  className={`inline-flex items-center rounded-full text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50 ${
                     selectedDirection
                       ? "min-h-10 max-w-[55%] gap-2 px-3"
                       : "size-10 justify-center"
