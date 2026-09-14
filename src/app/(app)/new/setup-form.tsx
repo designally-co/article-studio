@@ -705,14 +705,15 @@ export function SetupForm({ pillars, anthropicReady }: { pillars: PillarGroup[];
 }
 
 /**
- * THE PARKED ARTWORK. The card first carried `/create/no-idea.jpg`, a landscape
- * crop of posters. It is still in the repository, unused, because a landscape
- * picture is the wrong shape for a column that scrolls: one image height is all
- * the travel a cycle gets, and a wide, short file spends most of the loop
- * repeating itself. The grid below is tall on purpose — the drift has somewhere
- * to go before it comes back round.
+ * THE PARKED ARTWORK. The card first carried `/create/no-idea.jpg` — note the
+ * extension, it is not the file below — a landscape crop of posters. That file
+ * is still in the repository, unused, because a landscape picture is the wrong
+ * shape for a column that scrolls: one image height is all the travel a cycle
+ * gets, and a wide, short file spends most of the loop repeating itself. The
+ * grid this now points at is tall on purpose, so the drift has somewhere to go
+ * before it comes back round.
  */
-const IDEA_CARD_ART_SRC = "/create/no-idea-grid.jpg";
+const IDEA_CARD_ART_SRC = "/create/no-idea.jpeg";
 
 /**
  * The picture in the "No topic yet?" card: finished brand work — posters, type
