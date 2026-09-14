@@ -755,8 +755,8 @@ function IdeaCardArt() {
             className="cs-idea-card-art-image"
             src={IDEA_CARD_ART_SRC}
             alt=""
-            width={1400}
-            height={3800}
+            width={523}
+            height={1502}
             decoding="async"
           />
         ))}
