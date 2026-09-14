@@ -160,14 +160,8 @@ export function ArticleTable({ rows, sort }: { rows: ArticleRow[]; sort: string 
               <TableHead className="px-4 text-ink-3">
                 <SortHead label="Status" field="status" sort={sort} />
               </TableHead>
-              <TableHead className="hidden px-4 text-ink-3 md:table-cell">
+              <TableHead className="hidden w-px px-4 text-ink-3 md:table-cell">
                 <SortHead label="Updated" field="updated" sort={sort} />
-              </TableHead>
-              {/* The delete control's column. Named for assistive technology,
-                  blank on screen: a header that said "Actions" would be a word
-                  wider than the thing beneath it. */}
-              <TableHead className="w-px px-4">
-                <span className="sr-only">Actions</span>
               </TableHead>
             </TableRow>
           </TableHeader>

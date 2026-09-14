@@ -1,13 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useState } from "react";
-import { Trash2 } from "lucide-react";
 import { TableCell, TableRow } from "@/components/ui/table";
 import { Checkbox } from "@/components/ui/checkbox";
 import type { ProjectStatus } from "@/db/schema";
-import { deleteArticleAction } from "./actions";
 
 /**
  * One article, as a row.
@@ -44,27 +40,14 @@ export function LibraryRow({
   selected: boolean;
   onSelectedChange: (next: boolean) => void;
 }) {
-  const router = useRouter();
-  const [deleting, setDeleting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  /* NO DELETE ON THE ROW. It was a trash button in a column of its own after
+     Updated, revealed on hover — a second way to delete that did not look like
+     the first, confirmed by the browser's own dialog rather than the product's,
+     and a column the table's last date could not close against. Deleting is
+     one path now: tick the rows, and the selection bar's Delete, behind the
+     same confirmation for one article or ten.
 
-  async function remove() {
-    if (
-      !window.confirm(`Delete “${title}”? This cannot be undone.`)
-    )
-      return;
-    setDeleting(true);
-    setError(null);
-    try {
-      await deleteArticleAction(id);
-      router.refresh();
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "The article could not be deleted.");
-      setDeleting(false);
-    }
-  }
-
-  /* `relative` on the row is what lets the title's stretched link cover the
+     `relative` on the row is what lets the title's stretched link cover the
      whole line rather than just its own cell.
 
      THE GUTTER IS SET ON THE ROW, NOT ON EACH CELL. The primitive pads a `td`
@@ -78,8 +61,8 @@ export function LibraryRow({
       data-selected={selected || undefined}
       className="group relative [&>td]:px-4 hover:bg-sunken data-selected:bg-sunken"
     >
-      {/* Above the row's stretched link, like the delete button, or the link
-          would swallow the tick and open the article instead. */}
+      {/* Above the row's stretched link, or the link would swallow the tick and
+          open the article instead. */}
       <TableCell className="relative z-10 w-px">
         <Checkbox
           checked={selected}
@@ -116,11 +99,6 @@ export function LibraryRow({
             <span className="block truncate font-medium text-ink">{title}</span>
           </Link>
         </div>
-        {error && (
-          <p className="mt-1 text-xs text-danger-ink" role="alert">
-            {error}
-          </p>
-        )}
       </TableCell>
 
       <TableCell className="hidden text-ink-2 sm:table-cell">{category}</TableCell>
@@ -138,21 +116,9 @@ export function LibraryRow({
         )}
       </TableCell>
 
-      <TableCell className="hidden whitespace-nowrap text-ink-3 md:table-cell">{dateLabel}</TableCell>
-
-      <TableCell className="w-px">
-        {/* Above the row's stretched link, or it could not be clicked. Revealed
-            on hover and always present for the keyboard. */}
-        <button
-          type="button"
-          onClick={remove}
-          disabled={deleting}
-          aria-label={deleting ? `Deleting ${title}` : `Delete ${title}`}
-          className="relative z-10 grid size-10 place-items-center rounded-lg text-ink-3 opacity-0 transition-[opacity,color,background-color] duration-(--duration-fast) hover:bg-danger-soft hover:text-danger-ink focus-visible:opacity-100 focus-visible:outline-none focus-visible:[outline:2px_solid_var(--accent)] group-hover:opacity-100 disabled:opacity-50"
-        >
-          <Trash2 aria-hidden className="size-4" />
-        </button>
-      </TableCell>
+      {/* The last column, as wide as a date: it closes the row at the card's
+          edge, as the Hub's list tables do. */}
+      <TableCell className="hidden w-px whitespace-nowrap text-ink-3 md:table-cell">{dateLabel}</TableCell>
     </TableRow>
   );
 }
@@ -176,9 +142,9 @@ export function LibraryRow({
  * A list of names you can actually read beats a list of names you cannot with
  * a label underneath each one.
  *
- * The checkbox stays. Per-row delete is revealed on hover, which a touch screen
- * never does, so selecting and using the bar above is the only way to delete
- * anything here — removing the tick would remove the capability.
+ * The checkbox stays. Selecting and using the bar above is the only way to
+ * delete anything, here and in the table — removing the tick would remove the
+ * capability.
  */
 export function LibraryItem({
   id,
