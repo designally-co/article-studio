@@ -1,5 +1,5 @@
 import "server-only";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import { imageReferences, images, projects } from "@/db/schema";
 import { loadProject } from "@/lib/projects";
@@ -8,7 +8,7 @@ import { loadStoredImage, saveGeneratedImage, saveImage } from "@/lib/image/stor
 import { loadSharp } from "@/lib/image/sharp";
 import type { ImageAspectRatio, ReferenceImageInput } from "@/lib/image/providers";
 import { IMAGE_ASPECT_RATIOS } from "@/lib/image/providers";
-import { findReferenceCandidates } from "@/lib/image/reference-sources";
+import { findRelatedReferences, type RelatedReferenceSearch } from "@/lib/image/reference-search";
 import { MAX_FOUND_REFERENCES } from "@/lib/image/reference-policy";
 import type {
   GeneratedImageView,
@@ -47,23 +47,28 @@ export const referenceView = (row: typeof imageReferences.$inferSelect): Uploade
 export { loadSharp };
 
 /**
- * Find photographs of the scene this article's image should show.
+ * Find photographs related to this article — the kind of picture its image
+ * should be matched against.
  *
  * Nothing is generated here and nothing is published. This attaches material
  * the editor can look at, remove, and then generate from — which is the point:
  * a cover drawn from words alone reads as synthetic because the model was never
  * shown a real surface or a real moment.
  *
- * The query is the brief's `photoQuery` — the situation, in the words a
- * photographer would file it under. Searching the article's subject returned
- * pictures OF the topic; searching "designer working at desk laptop" returns a
- * photograph of somebody working, which is the thing the finished image is
- * matched against. So draft the prompt first; without a brief this falls back
- * to the topic title and finds much less.
+ * WHAT TO LOOK FOR is worked out from the article itself: a ladder of searches
+ * from the work being done down to the subject on its own, and a look at every
+ * result before it is kept — see `findRelatedReferences`. The brief's
+ * `photoQuery`, when one has been drafted, goes along as a hint. The headline
+ * is never searched as it stands: it is a sentence about the topic, and a photo
+ * library answered it with nothing.
  */
 export async function findReferenceImagesCore(
   projectId: string,
-  options?: { query?: string }
+  options?: {
+    query?: string;
+    /** At most this many new photographs. The autopilot asks for one. */
+    limit?: number;
+  }
 ): Promise<{ references: UploadedReferenceView[]; note?: string }> {
   const loaded = await loadProject(projectId);
   if (!loaded) throw new Error("Project not found.");
@@ -73,29 +78,53 @@ export async function findReferenceImagesCore(
     .select()
     .from(imageReferences)
     .where(eq(imageReferences.projectId, projectId));
-  const room = MAX_FOUND_REFERENCES - existing.length;
-  if (room <= 0) {
+  const space = MAX_FOUND_REFERENCES - existing.length;
+  if (space <= 0) {
     return {
       references: existing.map(referenceView),
       note: `This article already has ${existing.length} references. Remove one to look for more.`,
     };
   }
+  const room = Math.min(space, Math.max(0, Math.floor(options?.limit ?? space)));
 
-  const query =
-    (typeof options?.query === "string" ? options.query.trim().slice(0, 120) : "") ||
-    loaded.project.selectedTopic?.title ||
-    "";
-  if (!query) {
+  const draft = loaded.drafts.find((d) => d.isSelected) ?? loaded.drafts[0];
+  const article = draft?.contentMd.trim() ?? "";
+  const title =
+    article.match(/^#\s+(.+)$/m)?.[1]?.trim() || loaded.project.selectedTopic?.title?.trim() || "";
+  if (!title || room <= 0) {
     return {
       references: existing.map(referenceView),
-      note: "Draft the prompt first — the search needs the scene the brief describes.",
+      note: title ? undefined : "This article has no title yet, so there is nothing to look for.",
     };
   }
 
-  const candidates = await findReferenceCandidates({ query, limit: room });
+  /* RECORDED BEFORE THE SEARCH, so a search that fails or runs out of time still
+     counts as the one automatic attempt — otherwise every visit to the stage
+     would try again. A JSON merge rather than a rewrite of `inputs`: this runs
+     for twenty seconds, and the editor may choose a cover in the meantime. */
+  await db
+    .update(projects)
+    .set({
+      inputs: sql`coalesce(${projects.inputs}, '{}'::jsonb) || ${JSON.stringify({
+        referencesSearchedAt: new Date().toISOString(),
+      })}::jsonb`,
+      updatedAt: new Date(),
+    })
+    .where(eq(projects.id, projectId));
+
+  const search = await findRelatedReferences({
+    projectId,
+    title,
+    angle: loaded.project.selectedTopic?.angle,
+    // The opening says what the article is about; the whole of it is not needed
+    // to plan a photo search, and every token is inside the same sixty seconds.
+    article: article.slice(0, 3000),
+    seedQuery: options?.query,
+    limit: room,
+  });
 
   const saved: UploadedReferenceView[] = [];
-  for (const candidate of candidates) {
+  for (const candidate of search.candidates) {
     // Normalised the same way an upload is, and for the same reason: the
     // providers get one predictable, metadata-free format. If sharp cannot
     // load, the original bytes are still a valid image.
@@ -132,13 +161,22 @@ export async function findReferenceImagesCore(
 
   return {
     references: [...existing.map(referenceView), ...saved],
-    note:
-      saved.length > 0
-        ? undefined
-        : process.env.UNSPLASH_ACCESS_KEY
-          ? `No photographs came back for "${query}". Try a plainer scene in the prompt field, then draft again.`
-          : "UNSPLASH_ACCESS_KEY is not set, so only Openverse was searched — it rarely has a photograph of somebody working.",
+    note: saved.length > 0 ? undefined : searchNote(search),
   };
+}
+
+/** Why nothing was attached, in terms the editor can act on. */
+function searchNote(search: RelatedReferenceSearch): string {
+  if (!search.planned) return "Could not work out what to look for. Try again, or upload a photograph.";
+  if (search.found === 0) {
+    return process.env.UNSPLASH_ACCESS_KEY
+      ? `Nothing came back for ${search.queries.map((query) => `"${query}"`).join(", ")}. Try again, or upload a photograph.`
+      : "UNSPLASH_ACCESS_KEY is not set, so only Openverse was searched — it rarely has a photograph of the work itself.";
+  }
+  if (search.judged && search.rejected > 0) {
+    return `None of the ${search.found} photographs found were close enough to this article. Try again, or upload a photograph.`;
+  }
+  return "The photographs found could not be checked. Try again, or upload a photograph.";
 }
 
 export async function generateImagesCore(

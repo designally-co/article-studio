@@ -173,6 +173,15 @@ export type ProjectInputs = {
    */
   coverImageId?: string;
   /**
+   * When reference photographs were first searched for on this article, as an
+   * ISO time.
+   *
+   * What keeps the automatic search to once. An article that reaches the image
+   * stage from a suggested topic is searched on arrival; an editor who then
+   * removes what was found is not searched at again on the next visit.
+   */
+  referencesSearchedAt?: string;
+  /**
    * The autopilot's image work in progress, carried from one poke to the next.
    *
    * Only the unattended path writes this. An editor's browser holds the drafted

@@ -430,6 +430,10 @@ async function runReferenceStep(projectId: string, count: number) {
   const { work } = await readImageWork(projectId);
   const found = await findReferenceImagesCore(projectId, {
     query: work?.photoQuery ?? "",
+    /* One photograph. The run only ever sends the first, and every one kept is
+       a full-size download inside a step with a deadline. The search ranks best
+       first, so the one kept is the closest. */
+    limit: 1,
   });
   const reference = found.references[0];
   const option = (reference && options.find((o) => o.capabilities.referenceImages)) ?? options[0];

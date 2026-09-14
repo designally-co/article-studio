@@ -190,6 +190,18 @@ export default async function PipelinePage({
             options={imageOptions}
             initialView={finalizeView}
             anthropicReady={anthropicReady}
+            /* Look for reference photographs on arrival when nobody chose this
+               topic by hand — it came from a suggestion, a shortcut card or a
+               routine — and nobody has looked yet. Once per article: see
+               `referencesSearchedAt`. */
+            autoFindReferences={
+              (loaded.project.selectedTopic?.source === "suggested" ||
+                loaded.project.selectedTopic?.source === "edited") &&
+              !loaded.project.inputs.referencesSearchedAt &&
+              loaded.imageReferences.length === 0 &&
+              loaded.images.length === 0 &&
+              !published
+            }
             hubConfigured={isHubConfigured()}
             publishedHubUrl={
               (loaded.project.publishedTo as Record<string, string> | null)

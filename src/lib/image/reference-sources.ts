@@ -4,21 +4,22 @@ import type { ReferenceOrigin } from "@/db/schema";
 import { imageSize } from "./dimensions";
 
 /**
- * Finding the photograph the generated image is matched against.
+ * Where reference photographs come from, and how one is fetched.
  *
  * A cover made from words alone reads as synthetic: the model was given a
- * description and never a surface. The correction is a real photograph of the
- * situation the article describes — a designer at a desk, a typographer at a
- * press — which the finished image is then made to resemble in kind.
+ * description and never a surface. The correction is a real photograph from the
+ * world the article describes, which the finished image is then made to
+ * resemble in kind.
  *
  * Unsplash is where those come from, because it is a library of photographs of
  * people doing things and its licence permits commercial use and modification.
  * Openverse is the fallback where no Unsplash key is set: no key required, but
- * it leans towards archive and museum material and rarely has a picture of
- * somebody working.
+ * it leans towards archive and museum material.
  *
- * Nothing here publishes anything. It attaches material to the article that the
- * editor can see, remove, and then generate from.
+ * This file only talks to the libraries. Deciding WHAT to search for, and which
+ * results belong to the article, is `reference-search.ts` — searches here return
+ * metadata and small previews, and nothing full-size is downloaded until a
+ * result has been judged worth keeping.
  */
 
 export type ReferenceCandidate = {
@@ -35,22 +36,45 @@ export type ReferenceCandidate = {
   attribution: string | null;
 };
 
+/**
+ * A search result before anything is downloaded: enough to judge it by and to
+ * credit it, and the address of the file to fetch if it is kept.
+ */
+export type ReferenceHit = {
+  /** Stable across searches, so a photograph two queries both return is judged once. */
+  key: string;
+  /** A small rendition, shown to the judge. */
+  previewUrl: string;
+  /** The rendition that is downloaded and attached if this result is kept. */
+  imageUrl: string;
+  /** The library's own description. Often wrong; context, not evidence. */
+  caption: string;
+  sourceUrl: string;
+  sourceName: string;
+  license: string | null;
+  attribution: string | null;
+};
+
 /** 4 MB — larger than the 2 MB upload cap, because nobody chose these by hand. */
 const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
+
+/** A preview is a few tens of kilobytes; anything near this is not a preview. */
+const MAX_PREVIEW_BYTES = 1.5 * 1024 * 1024;
 
 /**
  * Below this on the short edge it is furniture, not a photograph: a logo, an
  * avatar, a social icon, a tracking pixel. Every one of those makes the
- * generation worse, and og:image tags point at them more often than you would
- * hope.
+ * generation worse.
  */
 const MIN_EDGE_PX = 320;
 
 /*
- * Timeouts sized against the 60s `maxDuration` the pipeline page gives every
- * action on it: one search, then a download per photograph kept.
+ * Timeouts sized against the 60s `maxDuration` every action on the pipeline
+ * page gets: a plan, a few searches, a pool of previews, a judgement, and a
+ * download per photograph kept.
  */
 const IMAGE_TIMEOUT_MS = 10_000;
+const PREVIEW_TIMEOUT_MS = 6_000;
 const SEARCH_TIMEOUT_MS = 8_000;
 
 const USER_AGENT =
@@ -63,15 +87,18 @@ const ALLOWED_TYPES: Record<string, "png" | "jpg"> = {
   "image/webp": "png",
 };
 
+/** The formats the Messages API reads. A preview in any other is left out. */
+const PREVIEW_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
+
 /**
  * Reject anything that is not a public https address.
  *
- * These URLs come from a model's research output and from a third-party search
- * API — neither is a trusted source of hostnames, and the fetch runs on the
- * server with whatever network position the server has. Literal private
- * addresses and loopback names are refused outright. This does not resolve DNS,
- * so it is not a complete SSRF defence; it is the cheap half that catches the
- * obvious cases, and it is paired with a hard cap on what is read back.
+ * These URLs come from a third-party search API — not a trusted source of
+ * hostnames — and the fetch runs on the server with whatever network position
+ * the server has. Literal private addresses and loopback names are refused
+ * outright. This does not resolve DNS, so it is not a complete SSRF defence; it
+ * is the cheap half that catches the obvious cases, and it is paired with a hard
+ * cap on what is read back.
  */
 function isPublicHttpsUrl(raw: string): URL | null {
   let url: URL;
@@ -150,8 +177,68 @@ async function downloadImage(rawUrl: string): Promise<{
   return { data, mimeType: declared === "image/jpg" ? "image/jpeg" : declared, ext, ...size };
 }
 
+/**
+ * A small rendition, to show the judge.
+ *
+ * Fetched here and sent as bytes rather than handed to the API as an address:
+ * one URL the API cannot fetch fails the whole call, while a preview that
+ * cannot be fetched here is simply left out of the pool.
+ */
+export async function downloadPreview(rawUrl: string): Promise<{ base64: string; mediaType: string } | null> {
+  const url = isPublicHttpsUrl(rawUrl);
+  if (!url) return null;
+  try {
+    const response = await fetch(url, {
+      // Named formats, not `image/*`: an image CDN that negotiates will answer
+      // `image/*` with AVIF, which the Messages API does not read.
+      headers: { "user-agent": USER_AGENT, accept: "image/jpeg,image/png,image/webp;q=0.9" },
+      redirect: "follow",
+      signal: AbortSignal.timeout(PREVIEW_TIMEOUT_MS),
+      cache: "no-store",
+    });
+    if (!response.ok) return null;
+    const mediaType = (response.headers.get("content-type") ?? "").split(";")[0].trim().toLowerCase();
+    if (!PREVIEW_TYPES.has(mediaType)) return null;
+    const data = Buffer.from(await response.arrayBuffer());
+    if (data.length === 0 || data.length > MAX_PREVIEW_BYTES) return null;
+    return { base64: data.toString("base64"), mediaType };
+  } catch {
+    return null;
+  }
+}
+
+/** Fetch a kept result full-size and make it something that can be attached. */
+export async function downloadHit(hit: ReferenceHit): Promise<ReferenceCandidate | null> {
+  const image = await downloadImage(hit.imageUrl);
+  if (!image) return null;
+  return {
+    ...image,
+    originalName: `${(hit.caption || "reference").slice(0, 100)}${image.ext === "png" ? ".png" : ".jpg"}`,
+    origin: "open_license",
+    sourceUrl: hit.sourceUrl,
+    sourceName: hit.sourceName,
+    license: hit.license,
+    attribution: hit.attribution,
+  };
+}
+
+/**
+ * A hash of the actual bytes, not a size-and-dimensions fingerprint. The cheap
+ * version collapsed two different photographs that happened to share a byte
+ * length and a shape — which is exactly what a set of images from one CDN, all
+ * resized by the same pipeline, tends to look like.
+ */
+export function fingerprint(data: Buffer): string {
+  return createHash("sha256").update(data).digest("hex");
+}
+
+export function hasUnsplashKey(): boolean {
+  return Boolean(process.env.UNSPLASH_ACCESS_KEY);
+}
+
 type UnsplashResult = {
-  urls?: { regular?: string; full?: string };
+  id?: string;
+  urls?: { small?: string; thumb?: string; regular?: string; full?: string };
   alt_description?: string | null;
   description?: string | null;
   links?: { html?: string };
@@ -159,31 +246,24 @@ type UnsplashResult = {
 };
 
 /**
- * Photographs of a situation, from Unsplash.
- *
- * This is the channel a grounded image is actually built on. The other two find
- * pictures ABOUT a topic — a source article's lead image is as often a logo or
- * a banner as a photograph, and Openverse leans towards archive and museum
- * material. Neither reliably answers "a designer working at a desk", which is
- * the kind of picture a grounded cover has to be matched against.
+ * Photographs from Unsplash, as results to judge.
  *
  * The Unsplash License permits commercial use and modification without
  * permission, which is what makes it safe to generate from. Attribution is not
- * legally required by that licence but is asked for, and Unsplash's API terms
- * do require crediting the photographer — so it is recorded on the row like any
- * other licence, and travels with the image.
+ * legally required by that licence but Unsplash's API terms require crediting
+ * the photographer — so it is recorded on the row like any other licence, and
+ * travels with the image.
  *
- * Needs UNSPLASH_ACCESS_KEY. Without one this returns nothing and the caller
- * falls back to Openverse, which needs no key but finds fewer usable scenes.
+ * Needs UNSPLASH_ACCESS_KEY. Without one this returns nothing.
  */
-export async function unsplashImages(query: string, limit: number): Promise<ReferenceCandidate[]> {
+export async function searchUnsplash(query: string, perPage: number): Promise<ReferenceHit[]> {
   const key = process.env.UNSPLASH_ACCESS_KEY;
   const terms = query.trim().slice(0, 120);
-  if (!key || !terms || limit <= 0) return [];
+  if (!key || !terms || perPage <= 0) return [];
 
   const endpoint = new URL("https://api.unsplash.com/search/photos");
   endpoint.searchParams.set("query", terms);
-  endpoint.searchParams.set("per_page", String(Math.min(limit * 3, 15)));
+  endpoint.searchParams.set("per_page", String(Math.min(perPage, 30)));
   // Landscape: these become article covers, and a portrait reference pushes the
   // generated frame the wrong way.
   endpoint.searchParams.set("orientation", "landscape");
@@ -207,34 +287,34 @@ export async function unsplashImages(query: string, limit: number): Promise<Refe
     return [];
   }
 
-  const candidates: ReferenceCandidate[] = [];
-  for (const result of results) {
-    if (candidates.length >= limit) break;
+  return results.flatMap((result): ReferenceHit[] => {
     // `regular` is ~1080px wide — plenty for a reference, and a fraction of
-    // `full`, which would spend the byte cap for nothing.
-    const source = result.urls?.regular ?? result.urls?.full;
-    if (!source) continue;
-    const image = await downloadImage(source);
-    if (!image) continue;
-
+    // `full`, which would spend the byte cap for nothing. `small` is ~400px,
+    // which is what the judge needs to see what is in the frame.
+    const imageUrl = result.urls?.regular ?? result.urls?.full;
+    const previewUrl = result.urls?.small ?? result.urls?.thumb ?? imageUrl;
+    if (!imageUrl || !previewUrl) return [];
     const photographer = result.user?.name?.slice(0, 180) ?? "";
-    const title = (result.alt_description ?? result.description ?? terms).slice(0, 100);
-    candidates.push({
-      ...image,
-      originalName: `${title}${image.ext === "png" ? ".png" : ".jpg"}`,
-      origin: "open_license",
-      sourceUrl: result.links?.html ?? source,
-      sourceName: photographer || "Unsplash",
-      license: "Unsplash License",
-      attribution: `Photo by ${photographer || "an Unsplash photographer"} on Unsplash`,
-    });
-  }
-  return candidates;
+    return [
+      {
+        key: `unsplash:${result.id ?? imageUrl}`,
+        previewUrl,
+        imageUrl,
+        caption: (result.alt_description ?? result.description ?? terms).slice(0, 200),
+        sourceUrl: result.links?.html ?? imageUrl,
+        sourceName: photographer || "Unsplash",
+        license: "Unsplash License",
+        attribution: `Photo by ${photographer || "an Unsplash photographer"} on Unsplash`,
+      },
+    ];
+  });
 }
 
 type OpenverseResult = {
+  id?: string;
   title?: string;
   url?: string;
+  thumbnail?: string;
   creator?: string;
   license?: string;
   license_version?: string;
@@ -243,29 +323,21 @@ type OpenverseResult = {
 };
 
 /**
- * Openly licensed images matching a query, from Openverse.
+ * Openly licensed images from Openverse, as results to judge.
  *
- * Openverse is the choice here because it needs no API key — this app already
- * asks for two, and a third to fetch a reference image would be a poor trade —
- * and because it states a licence per result, which is the whole reason this
- * channel exists. The filter asks for work that is cleared for commercial use
- * and for modification, since a reference image feeds a derivative work.
- *
- * Anonymous requests are rate limited. A refusal returns nothing rather than
- * failing the run: this is one of two channels, and the other may still have
- * found something.
+ * It needs no API key, and it states a licence per result. The filter asks for
+ * work cleared for commercial use and for modification, since a reference image
+ * feeds a derivative work. Anonymous requests are rate limited; a refusal
+ * returns nothing rather than failing the search.
  */
-export async function openLicenseImages(
-  query: string,
-  limit: number
-): Promise<ReferenceCandidate[]> {
+export async function searchOpenverse(query: string, perPage: number): Promise<ReferenceHit[]> {
   const terms = query.trim().slice(0, 120);
-  if (!terms || limit <= 0) return [];
+  if (!terms || perPage <= 0) return [];
 
   const endpoint = new URL("https://api.openverse.org/v1/images/");
   endpoint.searchParams.set("q", terms);
   endpoint.searchParams.set("license_type", "commercial,modification");
-  endpoint.searchParams.set("page_size", String(Math.min(limit * 3, 20)));
+  endpoint.searchParams.set("page_size", String(Math.min(perPage, 20)));
 
   let results: OpenverseResult[];
   try {
@@ -281,80 +353,25 @@ export async function openLicenseImages(
     return [];
   }
 
-  const candidates: ReferenceCandidate[] = [];
-  // Sequential on purpose: stop as soon as `limit` usable images are in hand
-  // rather than downloading twenty to keep three.
-  for (const result of results) {
-    if (candidates.length >= limit) break;
-    if (!result.url) continue;
-    const image = await downloadImage(result.url);
-    if (!image) continue;
-
+  return results.flatMap((result): ReferenceHit[] => {
+    if (!result.url) return [];
     const license = result.license
       ? `${result.license.toUpperCase()}${result.license_version ? ` ${result.license_version}` : ""}`
       : null;
     const creator = result.creator?.slice(0, 180) ?? "";
-    candidates.push({
-      ...image,
-      originalName: `${(result.title ?? "openverse").slice(0, 100)}${image.ext === "png" ? ".png" : ".jpg"}`,
-      origin: "open_license",
-      sourceUrl: result.foreign_landing_url ?? result.url,
-      sourceName: creator || "Openverse",
-      license,
-      attribution:
-        result.attribution?.slice(0, 500) ??
-        (license ? `${result.title ?? "Untitled"} by ${creator || "unknown"} (${license})` : null),
-    });
-  }
-  return candidates;
-}
-
-/**
- * Photographs of the scene: Unsplash, with Openverse where no key is set.
- *
- * There used to be a third channel that took the lead image of each page the
- * article cites. It is gone, and its removal is the point: a publisher's
- * `og:image` is as often a logo, a banner or a screenshot as a photograph, so
- * it answered "a picture about this topic" when the only question that matters
- * here is "a photograph of this situation". It also carried no licence, which
- * meant a badge, a warning line, a provenance column and a decision for the
- * editor — all of it in service of material that was usually unusable.
- */
-export async function findReferenceCandidates(params: {
-  query: string;
-  limit: number;
-}): Promise<ReferenceCandidate[]> {
-  const { limit } = params;
-  if (limit <= 0) return [];
-
-  const unsplash = await unsplashImages(params.query, limit);
-  const kept = dedupe(unsplash).slice(0, limit);
-  if (kept.length >= limit) return kept;
-
-  const openverse = await openLicenseImages(params.query, limit - kept.length);
-  return dedupe([...kept, ...openverse]).slice(0, limit);
-}
-
-/**
- * One image per source page, and never the same bytes twice.
- *
- * Syndicated articles share a lead image, and a set holding the same picture
- * three times spends three of the model's reference slots saying one thing.
- */
-function dedupe(candidates: ReferenceCandidate[]): ReferenceCandidate[] {
-  const seenBytes = new Set<string>();
-  const seenSources = new Set<string>();
-  const out: ReferenceCandidate[] = [];
-  for (const candidate of candidates) {
-    // A hash of the actual bytes, not a size-and-dimensions fingerprint. The
-    // cheap version collapsed two different photographs that happened to share
-    // a byte length and a shape — which is exactly what a set of images from
-    // one CMS, all resized by the same pipeline, tends to look like.
-    const fingerprint = createHash("sha256").update(candidate.data).digest("hex");
-    if (seenBytes.has(fingerprint) || seenSources.has(candidate.sourceUrl)) continue;
-    seenBytes.add(fingerprint);
-    seenSources.add(candidate.sourceUrl);
-    out.push(candidate);
-  }
-  return out;
+    return [
+      {
+        key: `openverse:${result.id ?? result.url}`,
+        previewUrl: result.thumbnail ?? result.url,
+        imageUrl: result.url,
+        caption: (result.title ?? "").slice(0, 200),
+        sourceUrl: result.foreign_landing_url ?? result.url,
+        sourceName: creator || "Openverse",
+        license,
+        attribution:
+          result.attribution?.slice(0, 500) ??
+          (license ? `${result.title ?? "Untitled"} by ${creator || "unknown"} (${license})` : null),
+      },
+    ];
+  });
 }

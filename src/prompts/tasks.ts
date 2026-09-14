@@ -278,6 +278,61 @@ ${params.article}
 ---`;
 }
 
+export function referenceSearchPlanTask(params: {
+  title: string;
+  angle?: string;
+  article?: string;
+  seedQuery?: string;
+}): string {
+  return `## Task: plan a stock-photo search for this article's reference photograph
+
+A reference photograph is what the article's image is later matched against. It does not have to show the article's exact subject. It has to be RELATED: the same world, the same kind of work. Plan searches that a stock photo library (Unsplash) can actually answer.
+
+Write \`queries\`: four to six searches, two to five words each, ordered from the best kind of photograph down to the merely acceptable. Tag each with its tier.
+
+- \`best\`: the work itself being done. The tools, software, screens, materials or workspace of the practice the article is about. For an article about motion on brand websites: "after effects timeline on monitor", "motion designer editing animation", "animation keyframes on screen".
+- \`acceptable\`: the subject matter without the work. The artefact, the material, the result. For the same article: "animated graphic shapes", "abstract kinetic typography", "colourful geometric motion graphics".
+
+Use the words a photographer would file the picture under. Name software or tools only where photographs of them in use plausibly exist. No other brand or company names, no abstract nouns ("innovation", "future", "success"), no mood adjectives, and never the article's headline.
+
+Write \`avoid\`: two to five short phrases naming the photographs a careless search would return that are WRONG for this article. Above all, literal readings of the topic's words that belong to a different world. For motion: "people moving with motion blur", "long-exposure traffic trails", "running athletes". For branding: "cattle branding". For a layout grid: "electrical power grid". Add the obvious stock clichés for the topic too.
+${
+  params.seedQuery
+    ? `\nThe image brief already suggested this search. It is a reasonable starting point but may be too narrow: "${params.seedQuery}"\n`
+    : ""
+}
+Title: ${params.title}${params.angle ? `\nAngle: ${params.angle}` : ""}${
+    params.article ? `\n\nOpening of the article:\n---\n${params.article}\n---` : ""
+  }`;
+}
+
+export function referenceJudgeTask(params: {
+  title: string;
+  angle?: string;
+  best: string[];
+  acceptable: string[];
+  avoid: string[];
+  captions: string[];
+}): string {
+  const quoted = (items: string[]) => items.map((item) => `"${item}"`).join(", ");
+  return `## Task: judge which search results can serve as this article's reference photograph
+
+${params.captions.length} photographs are attached, in order: the first image is candidate 1, the second is candidate 2, and so on. Judge what each picture actually SHOWS. The caption is the library's and is often wrong.
+
+The article:
+Title: ${params.title}${params.angle ? `\nAngle: ${params.angle}` : ""}
+
+Give every candidate exactly one verdict:
+- \`best\`: shows the work of this article's world being done — its tools, software, screens, materials or workspace. The search aimed at: ${quoted(params.best) || "(none)"}.
+- \`acceptable\`: clearly shows the subject matter of this world without the work — the artefact, the material, the result. The search also tried: ${quoted(params.acceptable) || "(none)"}.
+- \`reject\`: anything else. In particular a literal reading of the topic's words that belongs to a different world (${quoted(params.avoid) || "none named"}), a generic stock cliché, a picture whose connection to the article needs explaining, a logo or wordmark, or a picture that is mostly readable text.
+
+Related is enough; it does not have to match the article exactly. But if you cannot say in one short sentence how a picture belongs to this article's world, reject it.
+
+Library captions, for context only:
+${params.captions.map((caption, index) => `${index + 1}. ${caption || "(no caption)"}`).join("\n")}`;
+}
+
 export function brandReviewTask(article: string): string {
   return `## Task: qualitative brand review
 Review the article against the supplied Designally brand strategy and project foundation. Do not calculate a score, approval rate, or predicted performance. Evaluate these exact criteria:

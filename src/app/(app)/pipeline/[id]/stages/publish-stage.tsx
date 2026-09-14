@@ -126,6 +126,7 @@ export function PublishStage({
   anthropicReady,
   hubConfigured,
   publishedHubUrl,
+  autoFindReferences,
 }: {
   projectId: string;
   /** Article title — the masthead headline in the Hub preview. */
@@ -156,6 +157,8 @@ export function PublishStage({
   hubConfigured: boolean;
   /** Existing Knowledge Hub URL if this article was already published there. */
   publishedHubUrl?: string;
+  /** Look for reference photographs on arrival, once. The page decides when. */
+  autoFindReferences: boolean;
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -202,6 +205,7 @@ export function PublishStage({
           defaultAspectRatio={imageConfig.aspectRatio}
           options={options}
           anthropicReady={anthropicReady}
+          autoFindReferences={autoFindReferences}
           coverImageId={coverImageId}
           tab="images"
           onNext={() => show("complete")}
@@ -225,6 +229,7 @@ function ArticlePanel({
   options,
   anthropicReady,
   coverImageId,
+  autoFindReferences,
   tab,
   onNext,
 }: {
@@ -242,6 +247,7 @@ function ArticlePanel({
   options: ImageModelOption[];
   anthropicReady: boolean;
   coverImageId: string | null;
+  autoFindReferences: boolean;
   tab: "content" | "images";
   onNext: () => void;
 }) {
@@ -279,6 +285,7 @@ function ArticlePanel({
         defaultAspectRatio={defaultAspectRatio}
         options={options}
         anthropicReady={anthropicReady}
+        autoFindReferences={autoFindReferences}
         coverImageId={coverImageId}
         onNext={onNext}
       />
@@ -377,6 +384,7 @@ function ImagePanel({
   options,
   anthropicReady,
   coverImageId,
+  autoFindReferences,
   onNext,
 }: {
   projectId: string;
@@ -389,6 +397,7 @@ function ImagePanel({
   options: ImageModelOption[];
   anthropicReady: boolean;
   coverImageId: string | null;
+  autoFindReferences: boolean;
   onNext: () => void;
 }) {
   const requestedOption = options.find((option) => option.optionId === defaultOptionId);
@@ -639,6 +648,30 @@ function ImagePanel({
       setFinding(false);
     }
   }
+
+  /* FOUND ON ARRIVAL WHEN NOBODY CHOSE THE TOPIC. An article that started from
+     a suggestion — a shortcut card, a generated idea, a routine — reaches this
+     stage without anyone having thought about its picture, so the same search
+     the Find item runs starts by itself, once. The server records that it ran,
+     so removing what it found does not bring the search back next visit. */
+  const autoFound = useRef(false);
+  useEffect(() => {
+    if (!autoFindReferences || !anthropicReady) return;
+    if (!options.some((option) => option.capabilities.referenceImages)) return;
+    /* Started from a timer callback rather than the effect body, so the search's
+       own state updates are not a synchronous setState in an effect. The guard
+       is inside the callback too: in development React mounts, cleans up and
+       mounts again, and a guard set before the cancelled timer would stop the
+       second one from ever running. */
+    const timer = setTimeout(() => {
+      if (autoFound.current) return;
+      autoFound.current = true;
+      void findReferences();
+    }, 0);
+    return () => clearTimeout(timer);
+    // Once on arrival; the search itself persists server-side.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoFindReferences, anthropicReady]);
 
   async function removeReference(id: string) {
     const previous = references;
