@@ -303,16 +303,18 @@ export function RoutineForm({
                     {/* NATIVE LOOK OFF. iOS Safari gives a time input its own
                         intrinsic width and ignores `width: 100%`, so on a phone
                         it ran past the sheet's edge. Without the native
-                        appearance it takes the width it is given; the value
-                        then centres, so it is put back on the left where the
-                        selects above it keep theirs. */}
+                        appearance it takes the width it is given, but iOS
+                        stops centring the value both ways: it drifts to the
+                        middle horizontally and to the top vertically. So it is
+                        put back on the left where the selects keep theirs, and
+                        given a line as tall as the field (h-11) to sit in. */}
                     <input
                       type="time"
                       name="runAt"
                       aria-label="Time of day"
                       value={runAt}
                       onChange={(event) => setRunAt(event.target.value || "09:00")}
-                      className={`${FIELD} block cursor-pointer appearance-none text-left [&::-webkit-date-and-time-value]:text-left`}
+                      className={`${FIELD} block cursor-pointer appearance-none py-0 text-left leading-[2.75rem] [&::-webkit-date-and-time-value]:text-left [&::-webkit-date-and-time-value]:leading-[2.75rem]`}
                     />
                   </div>
                 )}
