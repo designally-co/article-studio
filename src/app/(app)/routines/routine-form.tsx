@@ -299,14 +299,20 @@ export function RoutineForm({
                      and it was quietly deciding that 09:15 was not a time you
                      were allowed to pick. The affordance is worth less than
                      the minute. */
-                  <div className="sm:w-40 sm:shrink-0">
+                  <div className="w-full min-w-0 sm:w-40 sm:shrink-0">
+                    {/* NATIVE LOOK OFF. iOS Safari gives a time input its own
+                        intrinsic width and ignores `width: 100%`, so on a phone
+                        it ran past the sheet's edge. Without the native
+                        appearance it takes the width it is given; the value
+                        then centres, so it is put back on the left where the
+                        selects above it keep theirs. */}
                     <input
                       type="time"
                       name="runAt"
                       aria-label="Time of day"
                       value={runAt}
                       onChange={(event) => setRunAt(event.target.value || "09:00")}
-                      className={`${FIELD} cursor-pointer`}
+                      className={`${FIELD} block cursor-pointer appearance-none text-left [&::-webkit-date-and-time-value]:text-left`}
                     />
                   </div>
                 )}
