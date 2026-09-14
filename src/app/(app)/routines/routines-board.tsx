@@ -12,10 +12,10 @@ import {
 } from "react";
 import { Button } from "@/components/ui/button";
 import { PageHeading } from "@/components/page-heading";
-import { PageBar, PAGE_ACTION_BUTTON } from "@/components/page-bar";
+import { PAGE_ACTION_BUTTON, PAGE_ACTION_BUTTON_QUIET, TopBlur } from "@/components/page-bar";
 import { EmptyState } from "@/components/empty-state";
 import { DropdownMenu as DropdownMenuPrimitive } from "radix-ui";
-import { Clock, MoreHorizontal, Pencil, Play, Plus, Trash2 } from "lucide-react";
+import { Clock, MoreHorizontal, Pencil, Play, Plus, Search, Trash2, X } from "lucide-react";
 import { IconArrowRight } from "@/components/icons";
 import { Switch } from "@/components/switch";
 import { ConfirmDialog } from "@/components/confirm-dialog";
@@ -68,6 +68,19 @@ export function RoutinesBoard({
   const [live, setLive] = useState<Live[]>(initialLive);
   const [failures, setFailures] = useState<Record<string, string>>({});
   const [, startTransition] = useTransition();
+
+  /* SEARCH NARROWS WHAT IS ALREADY HERE. Every routine is on the page, and the
+     board polls and refreshes itself while runs are live — so a term held in
+     the address would re-fetch the page on every keystroke for a list of a
+     handful. It matches the name and the description, which is where a routine
+     says what it is for. */
+  const [query, setQuery] = useState("");
+  const term = query.trim().toLowerCase();
+  const shown = term
+    ? routines.filter((routine) =>
+        `${routine.name} ${routine.description ?? ""}`.toLowerCase().includes(term),
+      )
+    : routines;
 
   /* One drive loop per tab, and it stops when the page does. A ref, not state:
      the loop reads it between awaits, where a state value would still be the
@@ -212,27 +225,18 @@ export function RoutinesBoard({
           dialog this component owns. `PageBar` is fixed for exactly that
           reason — it does not have to be the first thing on the page to sit on
           the first line of it. */}
-      <PageBar
-        title="Routines"
-        action={
-          /* Nothing to add to yet, and the empty state below already offers
-             exactly this. Two primary buttons on one screen, the same colour,
-             doing the same thing, is a choice with nothing on either side. */
-          routines.length > 0 ? (
-            <button
-              type="button"
-              onClick={() => {
-                setCreating(true);
-                setEditing(null);
-              }}
-              aria-label="New routine"
-              title="New routine"
-              className={PAGE_ACTION_BUTTON}
-            >
-              <Plus aria-hidden className="size-5" />
-            </button>
-          ) : undefined
-        }
+      <RoutinesBar
+        /* Nothing to add to or search yet, and the empty state below already
+           offers exactly this. Two primary buttons on one screen, the same
+           colour, doing the same thing, is a choice with nothing on either
+           side. */
+        hasRoutines={routines.length > 0}
+        query={query}
+        onQueryChange={setQuery}
+        onCreate={() => {
+          setCreating(true);
+          setEditing(null);
+        }}
       />
 
       {/* THE SAME AIR LIBRARY LEAVES. The board's `space-y-4` put 16px between
@@ -260,15 +264,20 @@ export function RoutinesBoard({
           description="Articles written on a schedule"
           actions={
             routines.length > 0 ? (
-              <Button
-                type="button"
-                onClick={() => {
-                  setCreating(true);
-                  setEditing(null);
-                }}
-              >
-                New routine
-              </Button>
+              /* Find, then make something new — the order Library's heading
+                 line uses. */
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                <RoutineSearch value={query} onChange={setQuery} />
+                <Button
+                  type="button"
+                  onClick={() => {
+                    setCreating(true);
+                    setEditing(null);
+                  }}
+                >
+                  New routine
+                </Button>
+              </div>
             ) : undefined
           }
         />
@@ -315,7 +324,19 @@ export function RoutinesBoard({
 
       {routines.length === 0 && <Empty onCreate={() => setCreating(true)} />}
 
-      {routines.map((routine) => (
+      {routines.length > 0 && shown.length === 0 && (
+        <EmptyState
+          title="Nothing matches that search"
+          description={`No routine is named or described with “${query.trim()}”.`}
+          action={
+            <Button type="button" variant="outline" onClick={() => setQuery("")}>
+              Clear search
+            </Button>
+          }
+        />
+      )}
+
+      {shown.map((routine) => (
         <RoutineCard
           key={routine.id}
           routine={routine}
@@ -342,6 +363,130 @@ export function RoutinesBoard({
           }
         />
       ))}
+    </div>
+  );
+}
+
+/**
+ * The desktop search, on the heading's line beside New routine.
+ *
+ * Library's field — outlined on the sunken ground, the magnifier inside it,
+ * a clear button in its right end once there is something to clear — at the
+ * height of the button beside it (44), so the two sit on one line.
+ */
+function RoutineSearch({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  return (
+    <div className="relative w-56">
+      <Search aria-hidden className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-ink-3" />
+      <input
+        type="search"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder="Search routines…"
+        aria-label="Search routines"
+        className="cs-select cs-field-outline !w-full pl-9 pr-8 text-sm [&::-webkit-search-cancel-button]:hidden"
+      />
+      {value && (
+        <button
+          type="button"
+          onClick={() => onChange("")}
+          aria-label="Clear search"
+          className="absolute right-2 top-1/2 grid size-5 -translate-y-1/2 place-items-center rounded text-ink-3 hover:text-ink"
+        >
+          <X aria-hidden className="size-4" />
+        </button>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The phone bar: the page's name on the menu button's line, with search and
+ * New routine at the far end — Library's bar, holding a routine's actions.
+ *
+ * Search opens into the whole line, as it does on Library: a field sharing the
+ * line with a title and a hamburger is a field the width of neither. Closing
+ * it clears the term, so a list does not stay narrowed by a search you can no
+ * longer see.
+ */
+function RoutinesBar({
+  hasRoutines,
+  query,
+  onQueryChange,
+  onCreate,
+}: {
+  hasRoutines: boolean;
+  query: string;
+  onQueryChange: (value: string) => void;
+  onCreate: () => void;
+}) {
+  const [searching, setSearching] = useState(false);
+
+  return (
+    <div
+      className={`fixed inset-x-0 top-0 lg:hidden ${
+        searching ? "z-(--z-search)" : "z-(--z-sticky)"
+      }`}
+    >
+      <TopBlur />
+      {/* Both outer columns two discs wide, so the title stays in the middle
+          of the screen with search and New routine on the right. */}
+      <div className="mx-auto grid h-12 w-full max-w-7xl grid-cols-[5.5rem_minmax(0,1fr)_5.5rem] items-center gap-2 px-3 sm:px-8">
+        {searching ? (
+          <div className="relative col-span-3 motion-safe:animate-in motion-safe:fade-in-0 motion-safe:duration-150">
+            <input
+              type="search"
+              autoFocus
+              value={query}
+              onChange={(event) => onQueryChange(event.target.value)}
+              placeholder="Search routines…"
+              aria-label="Search routines"
+              className="h-9 w-full rounded-full bg-surface pl-4 pr-10 text-sm text-ink outline-none placeholder:text-ink-3 focus-visible:shadow-[var(--shadow-focus)] [&::-webkit-search-cancel-button]:hidden"
+            />
+            <button
+              type="button"
+              onClick={() => {
+                setSearching(false);
+                onQueryChange("");
+              }}
+              aria-label="Close search"
+              className="absolute right-1 top-1/2 grid size-7 -translate-y-1/2 place-items-center rounded-full text-ink-3 transition-colors duration-(--duration-fast) ease-(--ease-out) hover:bg-chrome hover:text-ink focus-visible:outline-none focus-visible:shadow-[var(--shadow-focus)]"
+            >
+              <X aria-hidden className="size-4" />
+            </button>
+          </div>
+        ) : (
+          <>
+            <div aria-hidden />
+            <h1 className="min-w-0 truncate text-center font-heading text-base font-medium tracking-tight text-ink">
+              Routines
+            </h1>
+            {hasRoutines ? (
+              <div className="flex items-center gap-2 justify-self-end">
+                <button
+                  type="button"
+                  onClick={() => setSearching(true)}
+                  aria-label="Search routines"
+                  className={PAGE_ACTION_BUTTON_QUIET}
+                >
+                  <Search aria-hidden className="size-5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={onCreate}
+                  aria-label="New routine"
+                  title="New routine"
+                  className={PAGE_ACTION_BUTTON}
+                >
+                  <Plus aria-hidden className="size-5" />
+                </button>
+              </div>
+            ) : (
+              <div aria-hidden />
+            )}
+          </>
+        )}
+      </div>
     </div>
   );
 }

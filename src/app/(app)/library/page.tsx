@@ -4,6 +4,7 @@ import { getDb } from "@/db";
 import { projects, categories, images } from "@/db/schema";
 import { fetchableImageUrls } from "@/lib/image/storage";
 import { PageHeading } from "@/components/page-heading";
+import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/empty-state";
 import { FilterBar } from "./filter-bar";
 import { LibraryBar } from "./library-bar";
@@ -202,7 +203,17 @@ export default async function LibraryPage({
           title="Library"
           description="Every article, drafted or out"
           actions={
-            <FilterBar categories={cats.map((c) => ({ value: c.id, label: c.name }))} />
+            /* THE PAGE'S FORWARD ACTION, AFTER THE CONTROLS THAT NARROW IT:
+               find, filter, then make something new — the order the Hub's list
+               screens use. 36 tall like the search and the two selects beside
+               it, so the line is one row rather than one tall button among
+               short fields. It goes to Create, where every article starts. */
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <FilterBar categories={cats.map((c) => ({ value: c.id, label: c.name }))} />
+              <Button asChild className="h-9">
+                <Link href="/">New article</Link>
+              </Button>
+            </div>
           }
         />
       </header>
