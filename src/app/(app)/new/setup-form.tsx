@@ -705,26 +705,61 @@ export function SetupForm({ pillars, anthropicReady }: { pillars: PillarGroup[];
 }
 
 /**
- * The picture in the "No topic yet?" card: finished brand work — posters, cards,
- * a newsletter — which is what an idea turns into. Decoration, so it has empty
- * alternative text and is hidden from assistive technology.
+ * THE PARKED ARTWORK. The card first carried `/create/no-idea.jpg`, a landscape
+ * crop of posters. It is still in the repository, unused, because a landscape
+ * picture is the wrong shape for a column that scrolls: one image height is all
+ * the travel a cycle gets, and a wide, short file spends most of the loop
+ * repeating itself. The grid below is tall on purpose — the drift has somewhere
+ * to go before it comes back round.
+ */
+const IDEA_CARD_ART_SRC = "/create/no-idea-grid.jpg";
+
+/**
+ * The picture in the "No topic yet?" card: finished brand work — posters, type
+ * specimens, identities — which is what an idea turns into. Decoration, so it
+ * has empty alternative text and is hidden from assistive technology.
+ *
+ * IT DRIFTS UPWARD, FOREVER. A still crop of a grid says "here is a picture";
+ * a column that keeps climbing says "there is more of this than fits", which is
+ * the card's whole argument — the work does not run out, so neither should the
+ * ideas. Slow enough (see `--idea-card-drift-duration`) to read as a current
+ * rather than a carousel: nothing is being shown to you in turn, it is simply
+ * always moving.
+ *
+ * TWO COPIES, NOT ONE. The loop is a plain translate of the track by exactly
+ * half its height, so at the end of the cycle the second copy sits precisely
+ * where the first began and the restart has no seam. That is the only reason
+ * the image is here twice; anything else stacked in the track would break it.
  *
  * A plain `img` rather than `next/image`: it is already a compressed JPEG, and
- * it is one picture on one page. The artwork arrived on black; the black around
- * and between the posters was replaced with white so it sits on the white card.
+ * it is one picture on one page. `width`/`height` are there for the aspect
+ * ratio alone — they reserve the right box before the file loads, and the CSS
+ * then sizes it to the column and lets the height follow, which is what keeps
+ * the two copies identical and the seam shut at every card width.
+ *
+ * NO `loading="lazy"` on the second copy, tempting as it looks. The card clips
+ * its artwork, so the copy waiting below the fold never intersects the viewport
+ * and a lazy one would never load at all — the loop would run its first cycle
+ * and then climb into nothing. It is the same URL as the first, so the browser
+ * serves it from cache and the second copy costs one request in total.
  */
 function IdeaCardArt() {
   return (
     <div aria-hidden className="cs-idea-card-art">
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        className="cs-idea-card-art-image"
-        src="/create/no-idea.jpg"
-        alt=""
-        width={1200}
-        height={800}
-        decoding="async"
-      />
+      <div className="cs-idea-card-art-track">
+        {[0, 1].map((copy) => (
+          /* eslint-disable-next-line @next/next/no-img-element */
+          <img
+            key={copy}
+            className="cs-idea-card-art-image"
+            src={IDEA_CARD_ART_SRC}
+            alt=""
+            width={1400}
+            height={3800}
+            decoding="async"
+          />
+        ))}
+      </div>
     </div>
   );
 }

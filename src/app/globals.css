@@ -721,14 +721,65 @@
   mask-image: linear-gradient(to right, transparent 0%, #000 42%);
   pointer-events: none;
 }
-/* The picture itself, cropped to fill whatever share of the card it is given. */
-.cs-idea-card-art-image {
+/* THE ENDLESS CLIMB. The track is the two stacked copies of the picture, and
+   the whole of it slides up by exactly half its own height — which is one
+   copy — before snapping back to zero. At that instant copy two is standing
+   where copy one started, pixel for pixel, so the restart cannot be seen and
+   the column reads as one wall of work with no end to it.
+
+   `translate3d` rather than `top`: a transform is composited, so the drift
+   costs no layout and no paint for the length of the page's life. `linear`,
+   because any easing would make the loop breathe and give away where the seam
+   is. The duration is a variable so the phone can slow it down — see below. */
+.cs-idea-card-art-track {
   position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
+  inset-inline: 0;
+  top: 0;
+  --idea-card-drift-duration: 50s;
+  animation: cs-idea-card-drift var(--idea-card-drift-duration) linear infinite;
+  will-change: transform;
+}
+@keyframes cs-idea-card-drift {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    transform: translate3d(0, -50%, 0);
+  }
+}
+/* Each copy lets its height follow its width, so both are the same height at
+   every card width — which is what keeps the half-height translate landing
+   exactly on the seam. `block` kills the inline baseline gap that would
+   otherwise open a white line between the two.
+
+   THE FLOOR UNDER THE WIDTH is what stops the phone turning the artwork into
+   texture. The picture is a grid four pieces across; poured into the phone's
+   135px column it gives 30px tiles, which is not work any more, it is noise.
+   Below the floor the picture stops shrinking and starts being cropped
+   instead — fewer pieces, each big enough to be a poster. The desktop column
+   is already wider than the floor, so nothing there changes.
+
+   `max-width: none` because a floor is useless against the preflight rule that
+   caps every image at its container; `left`/`translate` centre the overflow,
+   and `translate` rather than `transform` so this never touches the property
+   the track's keyframes own. */
+.cs-idea-card-art-image {
+  display: block;
+  position: relative;
+  left: 50%;
+  translate: -50%;
+  width: max(100%, 320px);
+  max-width: none;
+  height: auto;
   mix-blend-mode: multiply;
+}
+/* STILL, NOT GONE. Reduced motion stops the drift where it stands rather than
+   removing the picture: the card still has its artwork, it simply does not
+   move. The second copy hangs below the fold and is never seen. */
+@media (prefers-reduced-motion: reduce) {
+  .cs-idea-card-art-track {
+    animation: none;
+  }
 }
 /* THE WHITE MASK. The left edge already fades out through the mask above; this
    washes the top, bottom and right edges into the card's colour too, so the picture
@@ -750,6 +801,14 @@
     width: 44%;
     -webkit-mask-image: linear-gradient(to right, transparent 0%, #000 55%);
     mask-image: linear-gradient(to right, transparent 0%, #000 55%);
+  }
+  /* A cycle is one image height, and the image is as tall as the column is
+     wide — so the narrow phone column has roughly a third of the desktop's
+     travel and, at the same duration, would crawl at a third of the speed. The
+     shorter duration is what keeps the drift moving at the same rate on the
+     glass, which is the thing the eye actually judges. */
+  .cs-idea-card-art-track {
+    --idea-card-drift-duration: 20s;
   }
 }
 /* The button overhangs the text's left edge by its own padding — the optical
