@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { LoaderCircle, Maximize2, Minimize2, RefreshCw, Send, Sparkle } from "lucide-react";
+import { ArrowUp, LoaderCircle, Maximize2, Minimize2, RefreshCw, Sparkle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PageHeading } from "@/components/page-heading";
 import { PageBar, PAGE_ACTION_BUTTON_QUIET } from "@/components/page-bar";
@@ -29,6 +29,9 @@ export function SetupForm({ pillars, anthropicReady }: { pillars: PillarGroup[];
   const [inputNeedsExpansion, setInputNeedsExpansion] = useState(false);
   const [selection, setSelection] = useState<Selection>({ pillarId: "", directionId: "" });
   const [pickerOpen, setPickerOpen] = useState(false);
+  // The "No idea?" card's own copy of the picker. Same selection, separate
+  // open state — one state for both would open both menus at once.
+  const [cardPickerOpen, setCardPickerOpen] = useState(false);
   const [topics, setTopics] = useState<TopicIdea[]>([]);
   const [generatingTopics, setGeneratingTopics] = useState(false);
   const [searchSlow, setSearchSlow] = useState(false);
@@ -307,7 +310,10 @@ export function SetupForm({ pillars, anthropicReady }: { pillars: PillarGroup[];
          the screen by design. */
       data-fits-viewport=""
     >
-      <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col">
+      {/* TWO MEASURES. The composer is a place to write, so it takes the wider
+          column; the question, the card and the pillars above it are read at a
+          glance and sit on a narrower one centred over it. */}
+      <div className="mx-auto flex w-full max-w-[62rem] flex-1 flex-col">
         {showComposer && (
         /* ONE ARRANGEMENT AT EVERY SIZE. The dock goes to the foot and the
            welcome — headline and the four pillar cards — centres in whatever
@@ -352,36 +358,110 @@ export function SetupForm({ pillars, anthropicReady }: { pillars: PillarGroup[];
               read next?
             </h1>
 
-            {/* FOUR DOORS, ONE PER PILLAR. Each card asks for ideas from
-                across that pillar, so an editor with no topic in mind has
-                somewhere to start that is narrower than "anything" and wider
-                than one direction. Two per row on a phone, four on a desktop
-                — the row is the pillar doc's own order, 01 to 04.
-
-                Under the headline rather than beside the dock: they are a way
-                to begin, not a setting on the field, and the welcome is where
-                a beginning is offered. */}
-            <div className="mx-auto mt-8 grid w-full max-w-3xl grid-cols-2 gap-2 text-left sm:mt-10 lg:grid-cols-4">
-              {pillars.map((pillar, index) => {
-                const Icon = pillarIcon(pillar.slug);
-                return (
+            {/* AS WIDE AS THE FOUR PILLS, on a desk. The pills hug their labels
+                and hold one line, and this column shrinks to fit them, so the
+                card above is exactly the row's width. On a phone the column is
+                the screen's and the pills wrap. */}
+            <div className="mx-auto mt-8 w-full text-left sm:mt-10 sm:w-fit">
+              {/* THE WAY IN FOR SOMEBODY WITH NOTHING TO TYPE. It was the dock's
+                  orange Generate button, which put "I have no topic" in the one
+                  place built for having one. It is its own card now, above the
+                  pillars it widens: the whole territory, or the direction the
+                  composer's picker is set to. The picture is what the ideas
+                  turn into — finished brand work — and it is decoration, so it
+                  is hidden from assistive technology. */}
+              <div
+                className="cs-idea-card motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-2 motion-safe:fill-mode-both motion-safe:duration-300"
+              >
+                <IdeaCardArt />
+                <div className="cs-idea-card-copy">
+                  {/* THE CARD IS THE BUTTON. Its sentence is the control, and an
+                      ::after stretches it over the whole card, so pressing
+                      anywhere on the card asks for ideas — the same shape the
+                      ideas list uses for a card whose title is its link. */}
                   <button
-                    key={pillar.id}
                     type="button"
-                    onClick={() => void generateTopics(pillar)}
+                    onClick={() => void generateTopics(null)}
                     disabled={ideasBusy}
-                    data-pillar={pillar.slug}
-                    style={{ animationDelay: `${index * 60}ms` }}
-                    className="cs-pillar-card motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-2 motion-safe:fill-mode-both motion-safe:duration-300"
-                    aria-label={`Generate ideas from the ${pillar.name} pillar`}
+                    className="cs-idea-card-title"
+                    aria-label={
+                      selectedDirection
+                        ? `Generate ideas in ${selectedDirection.name}`
+                        : "Generate ideas with auto direction"
+                    }
                   >
-                    <span aria-hidden className="cs-pillar-card-icon">
-                      <Icon className="size-4" />
-                    </span>
-                    <span className="cs-pillar-card-name">{pillar.name}</span>
+                    {/* WHAT PRESSING IT DOES, not an invitation to press. The
+                        ideas come from a live search of recent creative-industry
+                        sources, so the line says where they come from. */}
+                    No topic yet?
+                    <br />
+                    Find one in the latest news
                   </button>
-                );
-              })}
+                  {/* WHICH DIRECTION, CHOSEN BEFORE PRESSING. Auto until somebody
+                      picks one, and then it says which — the pill is the value
+                      and the way to change it. It sits above the card's stretched
+                      button as a control of its own, and shares its selection
+                      with the dock's picker, so the two can never disagree. */}
+                  <PillarDirectionPicker
+                    pillars={pillars}
+                    selection={selection}
+                    open={cardPickerOpen}
+                    onOpenChange={setCardPickerOpen}
+                    onChange={(next) => {
+                      setSelection(next);
+                      setTopics([]);
+                    }}
+                  >
+                    <button
+                      type="button"
+                      className="cs-idea-card-btn"
+                      aria-label={`Content direction: ${selectedDirection?.name ?? "Auto direction"}`}
+                    >
+                      {selectedPillar ? (
+                        (() => {
+                          const Icon = pillarIcon(selectedPillar.slug);
+                          return <Icon aria-hidden className="size-4 shrink-0" strokeWidth={1.8} />;
+                        })()
+                      ) : (
+                        /* THE ORB FOR "AUTO". Nobody has chosen, so the studio
+                           will — the same thinking mark the app uses wherever the
+                           model is the one deciding. A chosen direction swaps it
+                           for that pillar's icon. */
+                        <AccentOrb size={20} state="searching" />
+                      )}
+                      <span className="min-w-0 truncate">{selectedDirection?.name ?? "Auto Direction"}</span>
+                    </button>
+                  </PillarDirectionPicker>
+                </div>
+              </div>
+
+              {/* ONE PILL PER PILLAR. Each asks for ideas from across that
+                  pillar — narrower than "anything", wider than one direction —
+                  in the pillar doc's own order. Pills rather than the tinted
+                  cards they were: under the card they are its options, and a
+                  second row of cards would read as four more of it. They wrap
+                  on a phone and hold one line on a desk. */}
+              {/* One line on a desk — the line whose width the column takes. */}
+              <div className="mt-3 flex flex-wrap gap-2.5 sm:flex-nowrap">
+                {pillars.map((pillar, index) => {
+                  const Icon = pillarIcon(pillar.slug);
+                  return (
+                    <button
+                      key={pillar.id}
+                      type="button"
+                      onClick={() => void generateTopics(pillar)}
+                      disabled={ideasBusy}
+                      data-pillar={pillar.slug}
+                      style={{ animationDelay: `${60 + index * 45}ms` }}
+                      className="cs-pillar-chip motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-2 motion-safe:fill-mode-both motion-safe:duration-300"
+                      aria-label={`Generate ideas from the ${pillar.name} pillar`}
+                    >
+                      <Icon aria-hidden className="size-4 shrink-0" strokeWidth={1.8} />
+                      {pillar.name}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           </div>
           </div>
@@ -535,55 +615,22 @@ export function SetupForm({ pillars, anthropicReady }: { pillars: PillarGroup[];
                       one, so it was marking the state that needed it least. */}
                 </button>
               </PillarDirectionPicker>
-              {/* ONE ACTION AT A TIME, and the field decides which. Both used to
-                  sit here at once, the inapplicable one greyed and held at full
-                  strength so it would not look broken — a lot of machinery to
-                  keep a control on screen that could not be pressed. With
-                  nothing written, the only thing to do is ask for ideas; the
-                  moment there is a topic, the only thing to do is send it. */}
-              <div className="flex shrink-0 items-center gap-2">
-                {!hasInput ? (
-                <button
-                  type="button"
-                  onClick={() => void generateTopics(null)}
-                  disabled={ideasBusy}
-                  // Markup Wash, not the saturated fill: a middle weight that
-                  // gives the orb a ground to sit on, so the two read as one
-                  // object. The outline is tinted one ramp step past its own
-                  // fill, the way the neutral buttons sit one step past white —
-                  // a grey hairline around an orange wash reads as dirt, not as
-                  // a rule. Hover is gated on `enabled:` because a disabled
-                  // button still matches :hover in CSS.
-                  // It is the only control here when it shows, so it always
-                  // carries its label — the responsive swap that traded words
-                  // for room existed because a submit sat beside it.
-                  /* FILLED, NOT TINTED. It was the accent at its palest with
-                     an outline holding it together — which is what a secondary
-                     action looks like, and this is the only thing on the dock
-                     you are being invited to press. On the accent proper it
-                     needs no border to state its edge, and the label and the
-                     orb go white with it. */
-                  className="cs-btn cs-dock-btn cs-dock-btn--wide shrink-0 border-transparent bg-accent text-white enabled:hover:border-transparent enabled:hover:bg-accent-hover"
-                  aria-label="Generate ideas"
-                  title="Generate ideas"
-                >
-                  <AccentOrb tone="on-accent" />
-                  <span className="whitespace-nowrap pl-2">Generate</span>
-                </button>
-                ) : (
-                <button
-                  type="submit"
-                  disabled={pending}
-                  className="cs-dock-btn-icon cs-btn-primary shrink-0"
-                  aria-label={pending ? "Creating article" : "Continue to draft"}
-                  title={pending ? undefined : "Continue to draft"}
-                >
-                  {pending
-                    ? <LoaderCircle aria-hidden className="size-4 animate-spin motion-reduce:animate-none" />
-                    : <Send aria-hidden className="size-4" />}
-                </button>
-                )}
-              </div>
+              {/* ONE SEND, ALWAYS IN THE CORNER. Asking for ideas moved up into
+                  the "No idea?" card, so the dock does one thing: send what was
+                  written. With nothing written it is a quiet grey disc that
+                  cannot be pressed; the moment there is a topic it takes the
+                  accent, which is the signal that it now goes somewhere. */}
+              <button
+                type="submit"
+                disabled={pending || !hasInput}
+                className="cs-dock-send"
+                aria-label={pending ? "Creating article" : "Continue to draft"}
+                title={pending || !hasInput ? undefined : "Continue to draft"}
+              >
+                {pending
+                  ? <LoaderCircle aria-hidden className="size-5 animate-spin motion-reduce:animate-none" />
+                  : <ArrowUp aria-hidden className="size-5" strokeWidth={2} />}
+              </button>
             </div>
           </div>
           </div>
@@ -642,5 +689,30 @@ export function SetupForm({ pillars, anthropicReady }: { pillars: PillarGroup[];
           </div>
       </div>
     </form>
+  );
+}
+
+/**
+ * The picture in the "No topic yet?" card: finished brand work — posters, cards,
+ * a newsletter — which is what an idea turns into. Decoration, so it has empty
+ * alternative text and is hidden from assistive technology.
+ *
+ * A plain `img` rather than `next/image`: it is already a compressed JPEG, and
+ * it is one picture on one page. The artwork arrived on black; the black around
+ * and between the posters was replaced with white so it sits on the white card.
+ */
+function IdeaCardArt() {
+  return (
+    <div aria-hidden className="cs-idea-card-art">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        className="cs-idea-card-art-image"
+        src="/create/no-idea.jpg"
+        alt=""
+        width={1200}
+        height={800}
+        decoding="async"
+      />
+    </div>
   );
 }

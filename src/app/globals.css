@@ -667,78 +667,228 @@
   box-shadow: var(--shadow-card);
 }
 
-/* ---- pillar cards (the composer's four doors) ----
-   A soft wash inside the dock's hairline: no shadow, a tint that fades toward
-   white so the four read as one row of colour rather than four boxes, and the
-   same 1px line the dock draws so the two sit together.
-   Each pillar takes one of the system's tints, so a card's colour is the same
-   one its ideas will carry later. The icon sits in a white square, which is
-   what keeps a line icon legible on a wash of any hue.
+/* ---- Create: the "No idea?" card, the pillar pills and the send disc ----
+   White on the page's grey, like the dock under them, and no line: the
+   surface is the edge. The card's picture fills its right side and fades out
+   towards the text, so the words never sit on a poster and the card still
+   reads as one object rather than a picture beside a caption.
 
-   Compact on a phone on purpose. The composer page is locked to the screen
-   there (data-fits-viewport), so two rows of these have to fit above the dock
-   on the shortest phone in use — 96px each does, 140px each does not. */
-.cs-pillar-card {
-  --pillar-tint: var(--surface-deep);
+   Sized for the locked phone screen (data-fits-viewport): the card, two rows
+   of pills and the dock have to fit under the question on the shortest phone
+   in use. */
+.cs-idea-card {
+  position: relative;
+  isolation: isolate;
   display: flex;
-  /* A white line, the dock's weight. The dock's grey hairline read as an
-     edge cut into the tint; white sits on it like a rim of light, which is
-     what a wash wants. Same 1px, so the two still share a weight. */
+  min-height: 10.25rem;
+  overflow: hidden;
+  /* A white rim, like the pills under it: the picture runs to the card's edge, and
+     the rim is what keeps a poster from touching the page's grey. */
   border: 1px solid var(--white);
+  border-radius: 1.25rem;
+  background: var(--surface);
+  transition:
+    box-shadow var(--duration-fast) var(--ease-out),
+    transform var(--duration-fast) var(--ease-out);
+}
+/* The whole card answers for its stretched button: it lifts under the pointer,
+   gives when pressed, and carries the focus ring. */
+.cs-idea-card:has(.cs-idea-card-title:hover:not(:disabled)) {
+  box-shadow: var(--shadow-card);
+}
+.cs-idea-card:has(.cs-idea-card-title:active:not(:disabled)) {
+  transform: scale(0.99);
+}
+.cs-idea-card:has(.cs-idea-card-title:focus-visible) {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 50%, transparent);
+}
+.cs-idea-card-art {
+  position: absolute;
+  inset-block: 0;
+  right: 0;
+  z-index: -1;
+  width: 62%;
+  height: 100%;
+  -webkit-mask-image: linear-gradient(to right, transparent 0%, #000 42%);
+  mask-image: linear-gradient(to right, transparent 0%, #000 42%);
+  pointer-events: none;
+}
+/* The picture itself, cropped to fill whatever share of the card it is given. */
+.cs-idea-card-art-image {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+/* THE WHITE MASK. The left edge already fades out through the mask above; this
+   washes the top, bottom and right edges into the card's white too, so the picture
+   has no edge anywhere and reads as light on the card rather than a clip set
+   into it. White rather than transparent, because the card IS white — a
+   transparent fade would show the page's grey through the rim. */
+.cs-idea-card-art::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(to bottom, var(--white) 0%, transparent 22%, transparent 78%, var(--white) 100%),
+    linear-gradient(to left, var(--white) 0%, transparent 16%);
+}
+/* Narrower on a phone, where the text column needs most of a 351px card, and
+   a longer fade: at 55% the first poster began a few pixels after "tap". */
+@media (max-width: 639px) {
+  .cs-idea-card-art {
+    width: 44%;
+    -webkit-mask-image: linear-gradient(to right, transparent 0%, #000 55%);
+    mask-image: linear-gradient(to right, transparent 0%, #000 55%);
+  }
+}
+/* The button overhangs the text's left edge by its own padding — the optical
+   allowance a rounded pill needs to read as aligned with the line above it. */
+.cs-idea-card-copy {
+  display: flex;
   flex-direction: column;
   justify-content: space-between;
   align-items: flex-start;
-  gap: 0.75rem;
-  min-height: 6rem;
-  padding: 0.875rem;
-  border-radius: 1rem;
-  background: linear-gradient(160deg, var(--pillar-tint) 0%, color-mix(in srgb, var(--pillar-tint) 35%, var(--surface)) 100%);
+  gap: 1rem;
+  padding: 1.25rem 1.25rem 0.625rem 0.625rem;
+}
+.cs-idea-card-title {
+  margin: 0;
+  padding: 0 0 0 0.625rem;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 1.0625rem;
+  font-weight: 500;
+  line-height: 1.45;
   color: var(--ink);
   text-align: left;
-  transition:
-    transform var(--duration-fast) var(--ease-out),
-    filter var(--duration-fast) var(--ease-out);
+  cursor: pointer;
 }
-@media (min-width: 640px) {
-  .cs-pillar-card {
-    min-height: 8rem;
-    padding: 1rem;
+/* Stretched over the card: the card, not this line of text, is the target. */
+.cs-idea-card-title::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+}
+.cs-idea-card-title:focus-visible {
+  outline: none;
+}
+.cs-idea-card-title:disabled {
+  cursor: not-allowed;
+}
+/* A step smaller on a phone, so "Find one in the latest news" ends before the
+   picture begins to show through rather than running into its fade. After the rule
+   above, not before it: at equal specificity the later one wins. */
+@media (max-width: 639px) {
+  .cs-idea-card-title {
+    font-size: 0.9375rem;
   }
 }
-.cs-pillar-card:hover:not(:disabled) {
+.cs-idea-card-btn,
+.cs-pillar-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  border-radius: var(--radius-4xl);
+  font-size: var(--text-sm);
+  color: var(--ink);
+  white-space: nowrap;
+  transition:
+    background-color var(--duration-fast) var(--ease-out),
+    transform var(--duration-fast) var(--ease-out);
+}
+/* Above the card's stretched button, so pressing it opens the menu rather than
+   asking for ideas. */
+.cs-idea-card-btn {
+  position: relative;
+  z-index: 1;
+  max-width: 100%;
+  height: 2.5rem;
+  padding: 0 1rem 0 0.875rem;
+  border: 0;
+  background: var(--chrome);
+  font-weight: 600;
+}
+.cs-idea-card-btn:hover:not(:disabled),
+.cs-idea-card-btn[data-state="open"] {
+  background: var(--chrome-active);
+}
+/* EACH PILLAR IN ITS OWN TINT, the wash the pillar cards carried: the tint at
+   one corner fading most of the way to white, under a white rim. The colour is
+   the one that pillar's ideas carry later, so the pill and what it produces are
+   recognisably the same thing. */
+.cs-pillar-chip {
+  --pillar-tint: var(--surface-deep);
+  /* 40, the height of every other pill and disc on the page — the Auto
+     Direction pill, the dock's picker and its send. */
+  height: 2.5rem;
+  padding: 0 1.125rem 0 1rem;
+  border: 1px solid var(--white);
+  /* THREE STOPS, STARTING DEEPER. The two-stop wash ran from the 100 tint to
+     a near-white, which on a 40px pill was too little colour to read — the four
+     looked white. It now starts with a share of the pillar's full hue mixed
+     into its tint, passes through the tint, and ends pale; `--pillar-mix` is
+     how much hue, lower for the steel blue, whose 500 is nearly navy. */
+  --pillar-mix: 24%;
+  background: linear-gradient(
+    120deg,
+    color-mix(in srgb, var(--pillar-hue, var(--ink)) var(--pillar-mix), var(--pillar-tint)) 0%,
+    var(--pillar-tint) 55%,
+    color-mix(in srgb, var(--pillar-tint) 55%, var(--surface)) 100%
+  );
+  font-weight: 500;
+  transition:
+    filter var(--duration-fast) var(--ease-out),
+    transform var(--duration-fast) var(--ease-out);
+}
+.cs-pillar-chip svg {
+  color: var(--ink);
+}
+.cs-pillar-chip:hover:not(:disabled) {
   filter: saturate(1.15) brightness(0.985);
 }
-.cs-pillar-card:active:not(:disabled) {
-  transform: scale(0.985);
+.cs-pillar-chip[data-pillar="design"] { --pillar-tint: var(--orange-100); --pillar-hue: var(--orange-500); }
+.cs-pillar-chip[data-pillar="new-update"] { --pillar-tint: var(--blue-100); --pillar-hue: var(--blue-500); --pillar-mix: 14%; }
+.cs-pillar-chip[data-pillar="creative-things"] { --pillar-tint: var(--amber-100); --pillar-hue: var(--amber-500); --pillar-mix: 20%; }
+.cs-pillar-chip[data-pillar="ai-with-design"] { --pillar-tint: var(--green-100); --pillar-hue: var(--green-500); --pillar-mix: 18%; }
+.cs-idea-card-btn:active:not(:disabled),
+.cs-pillar-chip:active:not(:disabled) {
+  transform: scale(0.98);
 }
-.cs-pillar-card:disabled {
+.cs-idea-card-btn:disabled,
+.cs-pillar-chip:disabled {
   cursor: not-allowed;
   opacity: 0.55;
 }
 /* The same ring the dock's controls draw (`ring-3 ring-ring/50`). */
-.cs-pillar-card:focus-visible {
+.cs-idea-card-btn:focus-visible,
+.cs-pillar-chip:focus-visible,
+.cs-dock-send:focus-visible {
   outline: none;
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 50%, transparent);
 }
-.cs-pillar-card[data-pillar="design"] { --pillar-tint: var(--orange-100); }
-.cs-pillar-card[data-pillar="new-update"] { --pillar-tint: var(--blue-100); }
-.cs-pillar-card[data-pillar="creative-things"] { --pillar-tint: var(--amber-100); }
-.cs-pillar-card[data-pillar="ai-with-design"] { --pillar-tint: var(--green-100); }
-.cs-pillar-card-icon {
+/* Grey and inert until there is something to send; the accent once there is. */
+.cs-dock-send {
   display: grid;
   place-items: center;
-  width: 2rem;
-  height: 2rem;
-  border-radius: 0.5rem;
-  background: var(--surface);
-  color: var(--ink);
-  box-shadow: 0 1px 2px rgb(27 29 35 / 0.06);
+  flex-shrink: 0;
+  width: 2.5rem;
+  height: 2.5rem;
+  border: 0;
+  border-radius: var(--radius-4xl);
+  background: var(--color-accent);
+  color: #ffffff;
+  transition: background-color var(--duration-fast) var(--ease-out);
 }
-.cs-pillar-card-name {
-  font-family: var(--font-heading);
-  font-size: var(--text-sm);
-  font-weight: 500;
-  line-height: 1.3;
+.cs-dock-send:hover:not(:disabled) {
+  background: var(--color-accent-hover);
+}
+.cs-dock-send:disabled {
+  background: var(--chrome);
+  color: var(--ink-secondary);
+  cursor: default;
 }
 
 /* ---- double bezel (draft stage only) ----
