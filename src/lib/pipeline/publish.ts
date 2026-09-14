@@ -206,7 +206,8 @@ export async function publishToHubCore(
   await db
     .update(projects)
     .set({
-      publishedTo: { ...existing, knowledgeHub: result.absoluteUrl },
+      // The CMS address too: a Hub draft has no public page to link to.
+      publishedTo: { ...existing, knowledgeHub: result.absoluteUrl, knowledgeHubAdmin: result.adminUrl },
       ...(status === "published" ? { status: "published" as const } : {}),
       inputs: { ...loaded.project.inputs, publishDek: summary ?? loaded.project.inputs.publishDek },
       updatedAt: new Date(),
@@ -236,6 +237,7 @@ export async function publishToHubCore(
    */
   return {
     url: result.absoluteUrl,
+    adminUrl: result.adminUrl,
     slug: result.slug,
     status: result.status,
     ...(coverWarning ? { coverWarning } : {}),

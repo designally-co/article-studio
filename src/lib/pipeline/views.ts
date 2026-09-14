@@ -56,6 +56,8 @@ export type UploadedReferenceView = {
 
 export type PublishToHubResult = {
   url: string;
+  /** The article in the Hub's CMS — where a draft is visible; its public page is not. */
+  adminUrl: string;
   slug: string;
   status: string;
   /**

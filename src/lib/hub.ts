@@ -131,6 +131,12 @@ export type HubPublishResult = {
   path: string;
   /** Absolute URL, e.g. https://hub.designally.co/articles/my-slug */
   absoluteUrl: string;
+  /**
+   * The article in the Hub's CMS, e.g.
+   * https://hub.designally.co/admin/collections/articles/42 — the only place a
+   * DRAFT can be seen, since its public page 404s until it is published.
+   */
+  adminUrl: string;
   status: string;
 };
 
@@ -169,6 +175,7 @@ export async function publishArticleToHub(input: HubArticleInput): Promise<HubPu
     slug: ok.slug,
     path: ok.url,
     absoluteUrl: `${HUB_URL}${ok.url}`,
+    adminUrl: `${HUB_URL}/admin/collections/articles/${encodeURIComponent(String(ok.id))}`,
     status: ok.status,
   };
 }

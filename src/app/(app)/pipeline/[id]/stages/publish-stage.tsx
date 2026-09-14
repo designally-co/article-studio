@@ -126,6 +126,7 @@ export function PublishStage({
   anthropicReady,
   hubConfigured,
   publishedHubUrl,
+  publishedHubAdminUrl,
   autoFindReferences,
 }: {
   projectId: string;
@@ -157,6 +158,8 @@ export function PublishStage({
   hubConfigured: boolean;
   /** Existing Knowledge Hub URL if this article was already published there. */
   publishedHubUrl?: string;
+  /** The same article in the Hub's CMS, where a draft can actually be seen. */
+  publishedHubAdminUrl?: string;
   /** Look for reference photographs on arrival, once. The page decides when. */
   autoFindReferences: boolean;
 }) {
@@ -184,6 +187,7 @@ export function PublishStage({
           anthropicReady={anthropicReady}
           hubConfigured={hubConfigured}
           publishedHubUrl={publishedHubUrl}
+          publishedHubAdminUrl={publishedHubAdminUrl}
         />
       </StageShell>
     );
@@ -1444,6 +1448,7 @@ function PublishComposer({
   anthropicReady,
   hubConfigured,
   publishedHubUrl,
+  publishedHubAdminUrl,
 }: {
   projectId: string;
   title: string;
@@ -1456,6 +1461,7 @@ function PublishComposer({
   anthropicReady: boolean;
   hubConfigured: boolean;
   publishedHubUrl?: string;
+  publishedHubAdminUrl?: string;
 }) {
   const [dek, setDek] = useState<string | null>(initialDek);
   // Pending from first render when there's no cached dek — avoids a synchronous
@@ -1554,6 +1560,7 @@ function PublishComposer({
           anthropicReady={anthropicReady}
           hubConfigured={hubConfigured}
           publishedHubUrl={publishedHubUrl}
+          publishedHubAdminUrl={publishedHubAdminUrl}
         />
       </div>
     </div>
@@ -1582,6 +1589,24 @@ const PUBLISH_STEPS = [
  * progress — and the "Publishing…" label lived on the confirm panel, which
  * send() unmounts on the same tick, so nobody ever saw it.
  */
+/**
+ * The CMS page for a draft saved before its CMS address was recorded.
+ *
+ * Only its public URL is on record, and that page 404s for a draft. The slug is
+ * the last segment of it, and the CMS list filtered to that slug is one click
+ * from the article.
+ */
+function cmsUrlForHubPage(publicUrl: string): string | undefined {
+  try {
+    const url = new URL(publicUrl);
+    const slug = url.pathname.split("/").filter(Boolean).pop();
+    if (!slug) return undefined;
+    return `${url.origin}/admin/collections/articles?where[slug][equals]=${encodeURIComponent(slug)}`;
+  } catch {
+    return undefined;
+  }
+}
+
 function PublishingPanel({ status }: { status: "draft" | "published" }) {
   const [elapsed, setElapsed] = useState(0);
 
@@ -1678,6 +1703,7 @@ function PublishRail({
   anthropicReady,
   hubConfigured,
   publishedHubUrl,
+  publishedHubAdminUrl,
 }: {
   projectId: string;
   publish: PublishMetadata;
@@ -1685,13 +1711,20 @@ function PublishRail({
   anthropicReady: boolean;
   hubConfigured: boolean;
   publishedHubUrl?: string;
+  publishedHubAdminUrl?: string;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState<"draft" | "published" | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [coverWarning, setCoverWarning] = useState<string | null>(null);
-  const [result, setResult] = useState<{ url: string; status: string } | undefined>(
-    publishedHubUrl ? { url: publishedHubUrl, status: published ? "published" : "draft" } : undefined,
+  const [result, setResult] = useState<{ url: string; adminUrl?: string; status: string } | undefined>(
+    publishedHubUrl
+      ? {
+          url: publishedHubUrl,
+          adminUrl: publishedHubAdminUrl ?? cmsUrlForHubPage(publishedHubUrl),
+          status: published ? "published" : "draft",
+        }
+      : undefined,
   );
   const [error, setError] = useState<string | null>(null);
   const [reviewing, startReview] = useTransition();
@@ -1715,7 +1748,7 @@ function PublishRail({
         setError(r.message);
         return;
       }
-      setResult({ url: r.url, status: r.status });
+      setResult({ url: r.url, adminUrl: r.adminUrl, status: r.status });
       /* The article went up; the cover may not have. Not an error — the publish
          succeeded — so it is said beside the result rather than in place of it. */
       setCoverWarning(r.coverWarning ?? null);
@@ -1895,7 +1928,12 @@ function PublishRail({
               loud that it leaves the app. */}
           {result?.url && !confirming && !busy && (
             <a
-              href={result.url}
+              /* A DRAFT GOES TO THE CMS. Its public page 404s until it is
+                 published, so "Review the Hub draft" opened a page that could
+                 only say it did not exist. Decided by the status of the LAST
+                 save, not by whether the article was ever live: a live article
+                 saved back to draft has no public page either. */
+              href={result.status === "published" ? result.url : result.adminUrl ?? result.url}
               target="_blank"
               rel="noopener noreferrer"
               /* THE SAME BUTTON AS THE REST OF THE RAIL — 44px, the scale's
@@ -1909,7 +1947,7 @@ function PublishRail({
                  treatment as Generate and Auto-draft in the dock. */
               className="cs-btn w-full justify-center gap-2 border-[var(--orange-200)] bg-accent-soft text-accent-press hover:border-[var(--orange-300)] hover:bg-[var(--orange-200)]"
             >
-              {isLive ? "Open on the Hub" : "Review the Hub draft"}
+              {result.status === "published" ? "Open on the Hub" : "Open in the CMS"}
               <ExternalLink aria-hidden className="size-4" strokeWidth={1.8} />
               <span className="sr-only">(opens in a new tab)</span>
             </a>

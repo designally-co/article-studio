@@ -207,6 +207,10 @@ export default async function PipelinePage({
               (loaded.project.publishedTo as Record<string, string> | null)
                 ?.knowledgeHub
             }
+            publishedHubAdminUrl={
+              (loaded.project.publishedTo as Record<string, string> | null)
+                ?.knowledgeHubAdmin
+            }
           />
         )}
       </div>
