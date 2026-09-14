@@ -128,7 +128,11 @@ export default async function LibraryPage({
   /* PAGED AFTER SORTING, NOT BEFORE. The sort decides what "first" means, so
      slicing earlier would hand out the first twenty of an arbitrary order and
      call it page one. */
-  const PER_PAGE = 10;
+  /* The reader picks the page size from the pager; `?per=` carries it. Only the
+     offered sizes are honoured, so a hand-edited `?per=100000` is a 10. */
+  const PER_PAGE_OPTIONS = [10, 25, 50, 100];
+  const requestedPer = Number.parseInt(sp.per ?? "", 10);
+  const PER_PAGE = PER_PAGE_OPTIONS.includes(requestedPer) ? requestedPer : PER_PAGE_OPTIONS[0];
   const total = rows.length;
   const pageCount = Math.max(1, Math.ceil(total / PER_PAGE));
   /* Clamped rather than trusted: `?page=0`, `?page=99` and `?page=abc` all
@@ -138,15 +142,20 @@ export default async function LibraryPage({
   const start = (page - 1) * PER_PAGE;
   const pageRows = rows.slice(start, start + PER_PAGE);
 
-  const hrefForPage = (n: number) => {
+  const hrefFor = ({ page: n, per }: { page: number; per: number }) => {
     const next = new URLSearchParams();
     if (sp.q) next.set("q", sp.q);
     if (sp.category) next.set("category", sp.category);
     if (sp.status) next.set("status", sp.status);
     if (sp.sort) next.set("sort", sp.sort);
+    if (per !== PER_PAGE_OPTIONS[0]) next.set("per", String(per));
     if (n > 1) next.set("page", String(n));
     return next.size ? `/library?${next.toString()}` : "/library";
   };
+  const hrefForPage = (n: number) => hrefFor({ page: n, per: PER_PAGE });
+  /* A new page size starts again at page one: page 3 of a 10-row list is not
+     a place a 50-row list has. */
+  const perPageOptions = PER_PAGE_OPTIONS.map((per) => ({ value: per, href: hrefFor({ page: 1, per }) }));
   const toItemProps = (row: (typeof rows)[number]) => ({
     id: row.id,
     title: row.topic?.title || "Untitled project",
@@ -222,6 +231,7 @@ export default async function LibraryPage({
         {rows.length > 0 && (
           <Pagination
             label="Library pages"
+            perPage={{ value: PER_PAGE, options: perPageOptions }}
             pageCount={pageCount}
             total={total}
             from={start + 1}

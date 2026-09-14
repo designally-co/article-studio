@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { ChevronLeft, ChevronRight } from "lucide-react";
+import { PerPageMenu } from "@/components/per-page-menu";
 
 /**
  * Which slice of a list you are looking at, and how to move.
@@ -28,6 +29,7 @@ export function Pagination({
   to,
   hrefFor,
   label,
+  perPage,
 }: {
   pageCount: number;
   /** How many there are in total, not on this page. */
@@ -41,8 +43,15 @@ export function Pagination({
    *  A page with two of these needs them told apart, and "pagination" would
    *  not do it. */
   label: string;
+  /** Optional: how many rows a page holds, and where each choice leads. */
+  perPage?: { value: number; options: { value: number; href: string }[] };
 }) {
-  if (pageCount <= 1) return null;
+  /* WITH A PAGE-SIZE CHOICE, ONE PAGE IS NOT ENOUGH TO HIDE IT. Pick 50 on a
+     list of 18 and everything fits on one page — hiding the bar then would take
+     away the only control that could set it back. It goes only when the list
+     fits on a page at the smallest size, where the choice changes nothing. */
+  const smallest = perPage ? Math.min(...perPage.options.map((option) => option.value)) : 0;
+  if (perPage ? total <= smallest : pageCount <= 1) return null;
 
   /* TWO ARROWS, NO WORDS. "Previous" and "Next" beside arrows pointing the way
      they already point is the label saying what the glyph says; the pair took
@@ -80,9 +89,21 @@ export function Pagination({
           as the discs beside it. Padded to the text it holds, it came out 33
           against their 36 — three pixels is not a mistake anyone names, but it
           is enough to stop three objects reading as one row. */}
-      <p className="inline-flex min-h-9 items-center rounded-full border border-line bg-surface px-3.5 text-sm text-ink-3">
-        {from}–{to} of {total}
-      </p>
+      {/* THE PAGE SIZE LIVES IN THE COUNT'S PILL. "1–10 of 18" and "Per page:
+          10" are two readings of one thing — how much of the list is in front
+          of you — so they share the pill, the choice on the right behind an
+          inset hairline. The Hub's list screens draw theirs the same way. */}
+      <div className="inline-flex h-9 items-center rounded-full border border-line bg-surface text-sm text-ink-3">
+        <p className={perPage ? "pl-3.5 pr-3" : "px-3.5"}>
+          {from}–{to} of {total}
+        </p>
+        {perPage && (
+          <>
+            <span aria-hidden className="h-4 w-px bg-line" />
+            <PerPageMenu value={perPage.value} options={perPage.options} />
+          </>
+        )}
+      </div>
       <div className="flex items-center gap-2">
         {hrefFor.previous ? (
           <Link href={hrefFor.previous} className={step} rel="prev" aria-label="Previous page">
