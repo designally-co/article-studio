@@ -379,7 +379,7 @@ That step exists because this failed once in exactly that way: a release added f
 
 On boot, `getDb()` runs the migrator and seeder automatically **unless `SKIP_DB_MIGRATE=1`**. In a serverless deployment you want it set: every cold start otherwise runs the full migrator (its first statement is `CREATE SCHEMA`), which is pure overhead once the schema is current and multiplies connections during bursts. Apply migrations from a trusted place instead. Migration/seed failures are caught and logged rather than thrown, so a hiccup cannot 500 every request.
 
-**Vercel** — push to `main`. Region `sin1`. Set every variable from §9.
+**Vercel** — push to `main`. Region `sin1`. Set every variable from §9. Only `main` deploys: `git.deploymentEnabled` in `vercel.json` turns off preview deployments for every other branch. They had failed on every pull request since Google became the only sign-in, because the Preview environment has no `AUTH_GOOGLE_*` — and a preview holding production's variables would share its database. The `Release` GitHub Actions workflow builds every pull request instead.
 
 **The autopilot's scheduler.** Nothing in Vercel drives it usefully: Hobby cron fires roughly once a day and one article takes five to seven steps, so a run would take most of a week. The Cloudflare Worker in `workers/autopilot-poker` pokes the endpoint every five minutes instead — it carries no schedule of its own, only the interval at which the app is asked whether anything is due. It needs two **Worker secrets**: `AUTOPILOT_URL` (`https://<your-app>/api/cron/autopilot`) and `AUTOPILOT_SECRET` (the same value as `CRON_SECRET`). `vercel.json` keeps a daily cron as a backstop.
 
