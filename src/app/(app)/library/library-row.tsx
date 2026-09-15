@@ -222,8 +222,8 @@ export function LibraryItem({
       }}
     >
       {/* DELETE, UNDERNEATH: a round icon button in the critical red, centred in
-          the 88px the open card reveals. 44 across, the touch target a thumb
-          needs. The name is on the button for assistive technology; it is out
+          the 88px the open card reveals. 40 across, like every other icon
+          button on a phone. The name is on the button for assistive technology; it is out
           of the tab order and hidden until the card is open. */}
       <div className="absolute inset-y-0 right-0 grid w-[88px] place-items-center">
         <button
@@ -234,7 +234,7 @@ export function LibraryItem({
           aria-hidden={!open}
           aria-label={`Delete ${title}`}
           title="Delete"
-          className="grid size-11 place-items-center rounded-full bg-destructive text-white transition-[background-color,transform] duration-(--duration-fast) ease-(--ease-out) active:scale-95 active:bg-danger-hover focus-visible:outline-none focus-visible:[outline:2px_solid_var(--accent)] focus-visible:[outline-offset:2px]"
+          className="grid size-10 place-items-center rounded-full bg-destructive text-white transition-[background-color,transform] duration-(--duration-fast) ease-(--ease-out) active:scale-95 active:bg-danger-hover focus-visible:outline-none focus-visible:[outline:2px_solid_var(--accent)] focus-visible:[outline-offset:2px]"
         >
           <Trash2 aria-hidden className="size-5" />
         </button>

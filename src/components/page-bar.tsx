@@ -21,8 +21,9 @@ import { Plus } from "lucide-react";
  * first. On a desk the action stays a button on the heading line, where the
  * page's other controls are.
  *
- * 56 across, the accent, the card shadow and a plus; 24 off the edges, lifted
- * clear of a phone's home indicator. Below the drawer and dialogs, above the
+ * 40 across, like every other icon button on a phone; the accent, a raised
+ * shadow and a plus; 16 off the edges, lifted clear of a phone's home
+ * indicator. Below the drawer and dialogs, above the
  * page. A link when it navigates, a button when it opens something on this page.
  */
 export function PageFab({
@@ -35,8 +36,8 @@ export function PageFab({
   onClick?: () => void;
 }) {
   const className =
-    "fixed right-4 bottom-[max(1rem,calc(env(safe-area-inset-bottom)+0.5rem))] z-(--z-sticky) grid size-14 place-items-center rounded-full bg-accent text-white shadow-[var(--shadow-pop)] transition-[background-color,transform] duration-(--duration-fast) ease-(--ease-out) hover:bg-accent-hover active:scale-95 focus-visible:outline-none focus-visible:shadow-[var(--shadow-focus)] sm:right-6 sm:bottom-6 lg:hidden";
-  const icon = <Plus aria-hidden className="size-6" strokeWidth={2.25} />;
+    "fixed right-4 bottom-[max(1rem,calc(env(safe-area-inset-bottom)+0.5rem))] z-(--z-sticky) grid size-10 place-items-center rounded-full bg-accent text-white shadow-[var(--shadow-pop)] transition-[background-color,transform] duration-(--duration-fast) ease-(--ease-out) hover:bg-accent-hover active:scale-95 focus-visible:outline-none focus-visible:shadow-[var(--shadow-focus)] sm:right-6 sm:bottom-6 lg:hidden";
+  const icon = <Plus aria-hidden className="size-5" />;
   return href ? (
     <Link href={href} aria-label={label} title={label} className={className}>
       {icon}
