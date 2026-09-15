@@ -445,7 +445,7 @@ function RoutinesBar({
               onChange={(event) => onQueryChange(event.target.value)}
               placeholder="Search routines…"
               aria-label="Search routines"
-              className="h-9 w-full rounded-full bg-surface pl-4 pr-10 text-sm text-ink outline-none placeholder:text-ink-3 focus-visible:shadow-[var(--shadow-focus)] [&::-webkit-search-cancel-button]:hidden"
+              className="h-9 w-full rounded-full border border-line bg-surface pl-4 pr-10 text-sm text-ink outline-none placeholder:text-ink-3 focus-visible:shadow-[var(--shadow-focus)] [&::-webkit-search-cancel-button]:hidden"
             />
             <button
               type="button"

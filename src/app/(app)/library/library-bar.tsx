@@ -111,7 +111,7 @@ export function LibraryBar() {
               /* The bar's own height, so opening search does not make the band
                  taller and shift the list underneath it. White on the blur,
                  which is the surface treatment this line already uses. */
-              className="h-9 w-full rounded-full bg-surface pl-4 pr-10 text-sm text-ink outline-none placeholder:text-ink-3 focus-visible:shadow-[var(--shadow-focus)] [&::-webkit-search-cancel-button]:hidden"
+              className="h-9 w-full rounded-full border border-line bg-surface pl-4 pr-10 text-sm text-ink outline-none placeholder:text-ink-3 focus-visible:shadow-[var(--shadow-focus)] [&::-webkit-search-cancel-button]:hidden"
             />
             <button
               type="button"
