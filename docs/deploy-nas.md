@@ -127,7 +127,8 @@ Vercel production environment. They never pass through Git, tickets or chat.
 | `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME`, `R2_PUBLIC_URL` | yes | All five. `R2_PUBLIC_URL` must stay the same domain: stored image rows are that domain plus the key. |
 
 The stack sets these itself: `NODE_ENV=production`, `HOSTNAME=0.0.0.0`,
-`PORT=3000` and `SKIP_DB_MIGRATE=1`. The image sets `APP_COMMIT_SHA`.
+`PORT=3000`, `AUTH_URL=https://article-studio.designally.co` and
+`SKIP_DB_MIGRATE=1`. The image sets `APP_COMMIT_SHA`.
 
 **Never set on the NAS:**
 
@@ -206,13 +207,17 @@ The Google OAuth callback is
 `https://article-studio.designally.co/api/auth/callback/google`. It does not
 change as long as the hostname does not.
 
-Auth.js runs with `trustHost: true` and takes the origin from the
-`X-Forwarded-Host` and `X-Forwarded-Proto` headers Caddy sends. If sign-in
-redirects to the wrong origin after cutover, set
-`AUTH_URL=https://article-studio.designally.co`; that is a runtime variable,
-not a rebuild.
+**`AUTH_URL` is required, and the stack sets it.** Without it, sign-in breaks
+behind Caddy. The standalone server reports its own address as
+`0.0.0.0:3000`, and Auth.js builds the Google callback from that despite
+`trustHost: true`. Google is then sent back to
+`https://0.0.0.0:3000/api/auth/callback/google` and refuses. That happened for
+a few minutes at cutover on 15 September 2026, until `AUTH_URL` was added.
+It is a runtime variable, not a rebuild.
 
-Verify it with the login smoke test (§10), not by assumption.
+Check it without signing in. `GET /api/auth/providers` must show `callbackUrl`
+on `https://article-studio.designally.co`. Then confirm it with the login smoke
+test (§10).
 
 ---
 

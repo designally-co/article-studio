@@ -16,6 +16,10 @@ services:
       NODE_ENV: production
       HOSTNAME: 0.0.0.0
       PORT: 3000
+      # The public origin, for sign-in. Behind Caddy the standalone server
+      # reports itself as 0.0.0.0:3000, and Google would be sent back there.
+      # Not a secret.
+      AUTH_URL: https://article-studio.designally.co
       # Migrations are a separate, approved one-off step — never a side effect
       # of a container starting.
       SKIP_DB_MIGRATE: "1"

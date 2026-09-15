@@ -348,6 +348,7 @@ There is no webhook or outbound event system beyond the Hub publish. `publishToH
 | `SKIP_DB_MIGRATE` | recommended in prod | `1` stops every cold start running the migrator. See §10. |
 | `DB_FORCE_TRANSACTION_POOLER` | rarely | `1` rewrites a Supabase pooler URL `:5432` → `:6543`. **Off by default deliberately — see §11.** |
 | `APP_COMMIT_SHA` | set by the image | The commit a container image was built from, reported by `/api/health` as `commit` and `commitSha`. The Dockerfile sets it from a build argument; Vercel supplies `VERCEL_GIT_COMMIT_SHA` instead. |
+| `AUTH_URL` | behind a proxy | The public origin, e.g. `https://article-studio.designally.co`. Required in the container: behind Caddy the standalone server reports `0.0.0.0:3000`, and Google sign-in would be sent back there. Vercel does not need it. |
 | `ALLOW_LOCAL_FALLBACKS` | never in a deployment | `1` lets a production process use PGlite, `./data/images` and a generated encryption key. Without it, production refuses all three. For `npm start` on a laptop only. |
 
 If the `R2_*` variables are unset, images are written to `./data/images` and served by the app — in development only. Production refuses, unless `ALLOW_LOCAL_FALLBACKS=1`, and Vercel refuses regardless.
