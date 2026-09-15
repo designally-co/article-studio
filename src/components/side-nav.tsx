@@ -8,7 +8,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import gsap from "gsap";
 
 import { MOTION, duration } from "@/lib/motion";
-import { ArrowLeft, Menu, PanelLeftClose, X } from "lucide-react";
+import { ChevronLeft, Menu, PanelLeftClose, X } from "lucide-react";
 import { PAGE_ACTION_BUTTON_QUIET, PAGE_CLOSE_BUTTON } from "./page-bar";
 import { AccountMenu } from "./account-menu";
 import { SettingsSheet } from "./settings/settings-sheet";
@@ -198,7 +198,7 @@ export function SideNav({
             className={PAGE_ACTION_BUTTON_QUIET}
             aria-label="Go back"
           >
-            <ArrowLeft aria-hidden className="size-5" />
+            <ChevronLeft aria-hidden className="size-6" />
           </button>
         ) : (
         <button

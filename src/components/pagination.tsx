@@ -67,7 +67,7 @@ export function Pagination({
      in am I, and how do I move" — there is no version of that question that
      needs the word "Previous" spelled out beside a left-pointing arrow. */
   const step =
-    "grid size-10 place-items-center rounded-full border border-line bg-surface text-ink-2 transition-colors duration-(--duration-fast) hover:bg-sunken hover:text-ink focus-visible:outline-none focus-visible:[outline:2px_solid_var(--accent)] focus-visible:[outline-offset:2px]";
+    "grid size-11 place-items-center rounded-full border border-line bg-surface text-ink-2 lg:size-10 transition-colors duration-(--duration-fast) hover:bg-sunken hover:text-ink focus-visible:outline-none focus-visible:[outline:2px_solid_var(--accent)] focus-visible:[outline-offset:2px]";
   const spent = `${step} pointer-events-none opacity-40`;
 
   return (

@@ -408,7 +408,7 @@ export function DraftsStage({
                    carries its own fill and hairline because it now has article
                    text passing beneath it; `cs-tool` is drawn for a toolbar,
                    where the surface behind it is known to be empty. */
-                className="grid size-10 shrink-0 place-items-center rounded-full border border-line bg-surface/90 text-ink-2 shadow-[var(--shadow-card)] backdrop-blur-sm transition-colors duration-(--duration-fast) ease-(--ease-out) hover:bg-sunken hover:text-ink focus-visible:outline-none focus-visible:shadow-[var(--shadow-focus)] disabled:cursor-not-allowed disabled:opacity-40 aria-pressed:bg-sunken aria-pressed:text-ink"
+                className="grid size-11 shrink-0 place-items-center rounded-full border border-line bg-surface/90 lg:size-10 text-ink-2 shadow-[var(--shadow-card)] backdrop-blur-sm transition-colors duration-(--duration-fast) ease-(--ease-out) hover:bg-sunken hover:text-ink focus-visible:outline-none focus-visible:shadow-[var(--shadow-focus)] disabled:cursor-not-allowed disabled:opacity-40 aria-pressed:bg-sunken aria-pressed:text-ink"
                 aria-pressed={editing}
                 aria-label="Edit the Markdown"
                 title={editing ? "Preview the article" : "Edit the Markdown"}

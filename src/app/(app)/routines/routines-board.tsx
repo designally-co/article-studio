@@ -835,7 +835,7 @@ function RoutineMenu({
            tightness by making it harder to press, and nothing is drawn here
            until you touch it: the target's size is invisible, so there is no
            reason for it to be the thing that gives. */
-        className="relative z-10 -my-2 grid size-10 shrink-0 place-items-center rounded-lg text-ink-2 transition-colors duration-(--duration-fast) ease-(--ease-out) hover:bg-sunken hover:text-ink focus-visible:outline-none focus-visible:shadow-[var(--shadow-focus)] data-[state=open]:bg-sunken data-[state=open]:text-ink"
+        className="relative z-10 -my-2.5 grid size-11 shrink-0 place-items-center rounded-lg lg:-my-2 lg:size-10 text-ink-2 transition-colors duration-(--duration-fast) ease-(--ease-out) hover:bg-sunken hover:text-ink focus-visible:outline-none focus-visible:shadow-[var(--shadow-focus)] data-[state=open]:bg-sunken data-[state=open]:text-ink"
       >
         <MoreHorizontal aria-hidden className="size-4" />
       </DropdownMenuPrimitive.Trigger>

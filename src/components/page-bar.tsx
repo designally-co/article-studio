@@ -21,7 +21,7 @@ import { Plus } from "lucide-react";
  * first. On a desk the action stays a button on the heading line, where the
  * page's other controls are.
  *
- * 40 across, like every other icon button on a phone; the accent, a raised
+ * 44 across, like every other icon button on a phone; the accent, a raised
  * shadow and a plus; 16 off the edges, lifted clear of a phone's home
  * indicator. Below the drawer and dialogs, above the
  * page. A link when it navigates, a button when it opens something on this page.
@@ -36,7 +36,7 @@ export function PageFab({
   onClick?: () => void;
 }) {
   const className =
-    "fixed right-4 bottom-[max(1rem,calc(env(safe-area-inset-bottom)+0.5rem))] z-(--z-sticky) grid size-10 place-items-center rounded-full bg-accent text-white shadow-[var(--shadow-pop)] transition-[background-color,transform] duration-(--duration-fast) ease-(--ease-out) hover:bg-accent-hover active:scale-95 focus-visible:outline-none focus-visible:shadow-[var(--shadow-focus)] sm:right-6 sm:bottom-6 lg:hidden";
+    "fixed right-4 bottom-[max(1rem,calc(env(safe-area-inset-bottom)+0.5rem))] z-(--z-sticky) grid size-11 place-items-center rounded-full bg-accent text-white shadow-[var(--shadow-pop)] transition-[background-color,transform] duration-(--duration-fast) ease-(--ease-out) hover:bg-accent-hover active:scale-95 focus-visible:outline-none focus-visible:shadow-[var(--shadow-focus)] sm:right-6 sm:bottom-6 lg:hidden";
   const icon = <Plus aria-hidden className="size-5" />;
   return href ? (
     <Link href={href} aria-label={label} title={label} className={className}>
@@ -51,7 +51,7 @@ export function PageFab({
 
 /** The disc for a page's forward action: the thing you came here to press. */
 export const PAGE_ACTION_BUTTON =
-  "grid size-10 place-items-center rounded-full bg-accent text-white shadow-[var(--shadow-card)] transition-colors duration-(--duration-fast) ease-(--ease-out) enabled:hover:bg-accent-hover disabled:cursor-not-allowed disabled:bg-chrome-active disabled:text-ink-3 focus-visible:outline-none focus-visible:shadow-[var(--shadow-focus)]";
+  "grid size-11 place-items-center rounded-full bg-accent text-white shadow-[var(--shadow-card)] lg:size-10 transition-colors duration-(--duration-fast) ease-(--ease-out) enabled:hover:bg-accent-hover disabled:cursor-not-allowed disabled:bg-chrome-active disabled:text-ink-3 focus-visible:outline-none focus-visible:shadow-[var(--shadow-focus)]";
 
 /** The same disc, for an action that commits nothing — search, filters, the
  *  menu. White rather than accent, because the accent is what you press to
@@ -76,13 +76,13 @@ export const PAGE_ACTION_BUTTON =
  *  number it does not state, and the two-`size-*`-utilities trap this used to
  *  invite needs two sizes to exist before it can happen. */
 export const PAGE_ACTION_BUTTON_QUIET =
-  "grid size-10 place-items-center rounded-full border border-line bg-surface text-ink-2 transition-colors duration-(--duration-fast) ease-(--ease-out) hover:bg-chrome hover:text-ink focus-visible:outline-none focus-visible:shadow-[var(--shadow-focus)]";
+  "grid size-11 place-items-center rounded-full border border-line bg-surface text-ink-2 lg:size-10 transition-colors duration-(--duration-fast) ease-(--ease-out) hover:bg-chrome hover:text-ink focus-visible:outline-none focus-visible:shadow-[var(--shadow-focus)]";
 
 /*  40, THE SAME AS EVERY OTHER ICON BUTTON. The sheet's close was 36 and the
  *  drawer's 44, which is why the size used to live at the call sites; with one
  *  size it belongs here, where nothing can disagree with it. */
 export const PAGE_CLOSE_BUTTON =
-  "grid size-10 shrink-0 place-items-center rounded-full bg-chrome text-ink-2 transition-colors duration-(--duration-fast) ease-(--ease-out) hover:bg-chrome-active hover:text-ink focus-visible:outline-none focus-visible:shadow-[var(--shadow-focus)]";
+  "grid size-11 shrink-0 place-items-center rounded-full bg-chrome text-ink-2 lg:size-10 transition-colors duration-(--duration-fast) ease-(--ease-out) hover:bg-chrome-active hover:text-ink focus-visible:outline-none focus-visible:shadow-[var(--shadow-focus)]";
 
 /**
  * PROGRESSIVE BLUR, NOT A LID. An opaque band the width of the page does not

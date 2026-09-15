@@ -533,7 +533,7 @@ export function SetupForm({ pillars, anthropicReady }: { pillars: PillarGroup[];
                     field.focus();
                   });
                 }}
-                className="absolute right-3 top-3 grid size-10 place-items-center rounded-lg text-ink-3 transition-colors hover:bg-sunken hover:text-ink focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+                className="absolute right-3 top-3 grid size-11 place-items-center rounded-lg lg:size-10 text-ink-3 transition-colors hover:bg-sunken hover:text-ink focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
                 aria-label={inputExpanded ? "Collapse article input" : "Expand article input"}
                 aria-controls="article-input"
               >
