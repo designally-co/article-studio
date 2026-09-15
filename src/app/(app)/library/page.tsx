@@ -4,6 +4,7 @@ import { getDb } from "@/db";
 import { projects, categories, images } from "@/db/schema";
 import { fetchableImageUrls } from "@/lib/image/storage";
 import { PageHeading } from "@/components/page-heading";
+import { PageFab } from "@/components/page-bar";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/empty-state";
 import { FilterBar } from "./filter-bar";
@@ -179,6 +180,10 @@ export default async function LibraryPage({
           idea. See LibraryBar. */}
       <LibraryBar />
 
+      {/* New article on a phone or tablet: floating in the corner. It goes to
+          Create, where every article starts. */}
+      <PageFab href="/" label="New article" />
+
       {/* Not sticky and no rule beneath it: the title is content, so it scrolls
           away like the heading on Create. Pinned to the top it also stacked
           under the app's mobile header and covered the hamburger. */}
@@ -204,10 +209,9 @@ export default async function LibraryPage({
           description="Every article, drafted or out"
           actions={
             /* THE PAGE'S FORWARD ACTION, AFTER THE CONTROLS THAT NARROW IT:
-               find, filter, then make something new — the order the Hub's list
-               screens use. 36 tall like the search and the two selects beside
-               it, so the line is one row rather than one tall button among
-               short fields. It goes to Create, where every article starts. */
+               find, filter, then make something new. 36 tall like the search
+               and the two selects beside it. Desktop only, like this header;
+               below it New article is the floating button. */
             <div className="flex flex-wrap items-center justify-end gap-2">
               <FilterBar categories={cats.map((c) => ({ value: c.id, label: c.name }))} />
               <Button asChild className="h-9">

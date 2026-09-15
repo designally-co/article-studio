@@ -1,11 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Plus, Search, X } from "lucide-react";
+import { Search, X } from "lucide-react";
 
-import { PAGE_ACTION_BUTTON, PAGE_ACTION_BUTTON_QUIET, TopBlur } from "@/components/page-bar";
+import { PAGE_ACTION_BUTTON_QUIET, TopBlur } from "@/components/page-bar";
 
 /**
  * Library's phone bar: the page's name on the menu button's line, and the one
@@ -83,11 +82,7 @@ export function LibraryBar() {
           middle of the display rather than beside the menu button. The left
           column is empty: it reserves the button's space, and the button
           itself belongs to the navigation and paints above this. */}
-      {/* TWO DISCS ON THE RIGHT NOW — search and New article — so both outer
-          columns widen to two discs and a gap (5.5rem). The left one is still
-          empty space for the menu button; keeping the two the same width is
-          what keeps the title in the middle of the screen. */}
-      <div className="mx-auto grid h-12 w-full max-w-7xl grid-cols-[5.5rem_minmax(0,1fr)_5.5rem] items-center gap-2 px-3 sm:px-8">
+      <div className="mx-auto grid h-12 w-full max-w-7xl grid-cols-[2.75rem_minmax(0,1fr)_2.75rem] items-center gap-2 px-3 sm:px-8">
         {searching ? (
           /* THE DISC BECOMES THE BAR. Open, search is not a control sitting
              beside the page's name — it is the only thing on the line, spread
@@ -136,25 +131,17 @@ export function LibraryBar() {
             <h1 className="min-w-0 truncate text-center font-heading text-base font-medium tracking-tight text-ink">
               Library
             </h1>
-            <div className="flex items-center gap-2 justify-self-end">
-              <button
-                type="button"
-                onClick={() => setSearching(true)}
-                aria-label="Search articles"
-                /* White, not accent. Search commits nothing — it narrows a
-                   list — and the accent disc is the one you press to make
-                   something happen. It matches the menu button at the other
-                   end of the same line. */
-                className={PAGE_ACTION_BUTTON_QUIET}
-              >
-                <Search aria-hidden className="size-5" />
-              </button>
-              {/* The accent disc: the page's one forward action, last on the
-                  line, as Routines puts New routine. */}
-              <Link href="/" aria-label="New article" title="New article" className={PAGE_ACTION_BUTTON}>
-                <Plus aria-hidden className="size-5" />
-              </Link>
-            </div>
+            <button
+              type="button"
+              onClick={() => setSearching(true)}
+              aria-label="Search articles"
+              /* White, not accent. Search commits nothing — it narrows a
+                 list — and the accent is the floating New article button. It
+                 matches the menu button at the other end of the same line. */
+              className={`justify-self-end ${PAGE_ACTION_BUTTON_QUIET}`}
+            >
+              <Search aria-hidden className="size-5" />
+            </button>
           </>
         )}
       </div>

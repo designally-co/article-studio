@@ -12,10 +12,10 @@ import {
 } from "react";
 import { Button } from "@/components/ui/button";
 import { PageHeading } from "@/components/page-heading";
-import { PAGE_ACTION_BUTTON, PAGE_ACTION_BUTTON_QUIET, TopBlur } from "@/components/page-bar";
+import { PageFab, PAGE_ACTION_BUTTON_QUIET, TopBlur } from "@/components/page-bar";
 import { EmptyState } from "@/components/empty-state";
 import { DropdownMenu as DropdownMenuPrimitive } from "radix-ui";
-import { Clock, MoreHorizontal, Pencil, Play, Plus, Search, Trash2, X } from "lucide-react";
+import { Clock, MoreHorizontal, Pencil, Play, Search, Trash2, X } from "lucide-react";
 import { IconArrowRight } from "@/components/icons";
 import { Switch } from "@/components/switch";
 import { ConfirmDialog } from "@/components/confirm-dialog";
@@ -225,19 +225,22 @@ export function RoutinesBoard({
           dialog this component owns. `PageBar` is fixed for exactly that
           reason — it does not have to be the first thing on the page to sit on
           the first line of it. */}
-      <RoutinesBar
-        /* Nothing to add to or search yet, and the empty state below already
-           offers exactly this. Two primary buttons on one screen, the same
-           colour, doing the same thing, is a choice with nothing on either
-           side. */
-        hasRoutines={routines.length > 0}
-        query={query}
-        onQueryChange={setQuery}
-        onCreate={() => {
-          setCreating(true);
-          setEditing(null);
-        }}
-      />
+      <RoutinesBar hasRoutines={routines.length > 0} query={query} onQueryChange={setQuery} />
+
+      {/* New routine on a phone or tablet, floating in the corner (the desk
+          keeps its button on the heading line). Not while there
+          are none: the empty state below already offers exactly this, and two
+          primary buttons doing the same thing is a choice with nothing on
+          either side. */}
+      {routines.length > 0 && (
+        <PageFab
+          label="New routine"
+          onClick={() => {
+            setCreating(true);
+            setEditing(null);
+          }}
+        />
+      )}
 
       {/* THE SAME AIR LIBRARY LEAVES. The board's `space-y-4` put 16px between
           the heading and the first routine, where Library leaves 41 — so two
@@ -265,7 +268,7 @@ export function RoutinesBoard({
           actions={
             routines.length > 0 ? (
               /* Find, then make something new — the order Library's heading
-                 line uses. */
+                 line uses. Below `lg` New routine is the floating button. */
               <div className="flex flex-wrap items-center justify-end gap-2">
                 <RoutineSearch value={query} onChange={setQuery} />
                 <Button
@@ -401,8 +404,8 @@ function RoutineSearch({ value, onChange }: { value: string; onChange: (value: s
 }
 
 /**
- * The phone bar: the page's name on the menu button's line, with search and
- * New routine at the far end — Library's bar, holding a routine's actions.
+ * The phone bar: the page's name on the menu button's line, with search at the
+ * far end — Library's bar. New routine is the floating button.
  *
  * Search opens into the whole line, as it does on Library: a field sharing the
  * line with a title and a hamburger is a field the width of neither. Closing
@@ -413,12 +416,10 @@ function RoutinesBar({
   hasRoutines,
   query,
   onQueryChange,
-  onCreate,
 }: {
   hasRoutines: boolean;
   query: string;
   onQueryChange: (value: string) => void;
-  onCreate: () => void;
 }) {
   const [searching, setSearching] = useState(false);
 
@@ -429,9 +430,7 @@ function RoutinesBar({
       }`}
     >
       <TopBlur />
-      {/* Both outer columns two discs wide, so the title stays in the middle
-          of the screen with search and New routine on the right. */}
-      <div className="mx-auto grid h-12 w-full max-w-7xl grid-cols-[5.5rem_minmax(0,1fr)_5.5rem] items-center gap-2 px-3 sm:px-8">
+      <div className="mx-auto grid h-12 w-full max-w-7xl grid-cols-[2.75rem_minmax(0,1fr)_2.75rem] items-center gap-2 px-3 sm:px-8">
         {searching ? (
           <div className="relative col-span-3 motion-safe:animate-in motion-safe:fade-in-0 motion-safe:duration-150">
             <input
@@ -462,25 +461,14 @@ function RoutinesBar({
               Routines
             </h1>
             {hasRoutines ? (
-              <div className="flex items-center gap-2 justify-self-end">
-                <button
-                  type="button"
-                  onClick={() => setSearching(true)}
-                  aria-label="Search routines"
-                  className={PAGE_ACTION_BUTTON_QUIET}
-                >
-                  <Search aria-hidden className="size-5" />
-                </button>
-                <button
-                  type="button"
-                  onClick={onCreate}
-                  aria-label="New routine"
-                  title="New routine"
-                  className={PAGE_ACTION_BUTTON}
-                >
-                  <Plus aria-hidden className="size-5" />
-                </button>
-              </div>
+              <button
+                type="button"
+                onClick={() => setSearching(true)}
+                aria-label="Search routines"
+                className={`justify-self-end ${PAGE_ACTION_BUTTON_QUIET}`}
+              >
+                <Search aria-hidden className="size-5" />
+              </button>
             ) : (
               <div aria-hidden />
             )}

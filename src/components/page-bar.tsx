@@ -9,6 +9,45 @@
  * agreeing with each other is three chances for them to stop agreeing.
  */
 
+import Link from "next/link";
+import { Plus } from "lucide-react";
+
+/**
+ * A page's one forward action as a floating button in the bottom-right corner —
+ * Library's New article, Routines' New routine.
+ *
+ * BELOW `lg` ONLY. On a phone it shared a crowded bar with the menu and search;
+ * in the corner it is always reachable and it is the corner a thumb reaches
+ * first. On a desk the action stays a button on the heading line, where the
+ * page's other controls are.
+ *
+ * 56 across, the accent, the card shadow and a plus; 24 off the edges, lifted
+ * clear of a phone's home indicator. Below the drawer and dialogs, above the
+ * page. A link when it navigates, a button when it opens something on this page.
+ */
+export function PageFab({
+  label,
+  href,
+  onClick,
+}: {
+  label: string;
+  href?: string;
+  onClick?: () => void;
+}) {
+  const className =
+    "fixed right-4 bottom-[max(1rem,calc(env(safe-area-inset-bottom)+0.5rem))] z-(--z-sticky) grid size-14 place-items-center rounded-full bg-accent text-white shadow-[var(--shadow-pop)] transition-[background-color,transform] duration-(--duration-fast) ease-(--ease-out) hover:bg-accent-hover active:scale-95 focus-visible:outline-none focus-visible:shadow-[var(--shadow-focus)] sm:right-6 sm:bottom-6 lg:hidden";
+  const icon = <Plus aria-hidden className="size-6" strokeWidth={2.25} />;
+  return href ? (
+    <Link href={href} aria-label={label} title={label} className={className}>
+      {icon}
+    </Link>
+  ) : (
+    <button type="button" onClick={onClick} aria-label={label} title={label} className={className}>
+      {icon}
+    </button>
+  );
+}
+
 /** The disc for a page's forward action: the thing you came here to press. */
 export const PAGE_ACTION_BUTTON =
   "grid size-10 place-items-center rounded-full bg-accent text-white shadow-[var(--shadow-card)] transition-colors duration-(--duration-fast) ease-(--ease-out) enabled:hover:bg-accent-hover disabled:cursor-not-allowed disabled:bg-chrome-active disabled:text-ink-3 focus-visible:outline-none focus-visible:shadow-[var(--shadow-focus)]";
