@@ -5,6 +5,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Search, X } from "lucide-react";
 
 import { PAGE_ACTION_BUTTON_QUIET, TopBlur } from "@/components/page-bar";
+import { useSearchBarMotion } from "@/lib/search-bar-motion";
 
 /**
  * Library's phone bar: the page's name on the menu button's line, and the one
@@ -32,6 +33,7 @@ export function LibraryBar() {
      bookmark, the back button — shows you what is filtering the list rather
      than a title and a short list with no stated reason for being short. */
   const [searching, setSearching] = useState(queryParam !== "");
+  const { barRef, closeField } = useSearchBarMotion(searching);
 
   /* Adjusted during render rather than in an effect, so a URL that changed
      underneath the box never paints stale for a frame. Only a value we did not
@@ -61,10 +63,14 @@ export function LibraryBar() {
     router.push(next.size ? `${pathname}?${next.toString()}` : pathname);
   }
 
+  /* The field folds back into its disc first (GSAP), and the search closes
+     when it has gone — see useSearchBarMotion. */
   function closeSearch() {
-    setSearching(false);
-    setQuery("");
-    if (queryParam) push("");
+    closeField(() => {
+      setSearching(false);
+      setQuery("");
+      if (queryParam) push("");
+    });
   }
 
   return (
@@ -82,7 +88,7 @@ export function LibraryBar() {
           middle of the display rather than beside the menu button. The left
           column is empty: it reserves the button's space, and the button
           itself belongs to the navigation and paints above this. */}
-      <div className="mx-auto grid h-12 w-full max-w-7xl grid-cols-[2.75rem_minmax(0,1fr)_2.75rem] items-center gap-2 px-3 sm:px-8">
+      <div ref={barRef} className="mx-auto grid h-12 w-full max-w-7xl grid-cols-[2.75rem_minmax(0,1fr)_2.75rem] items-center gap-2 px-3 sm:px-8">
         {searching ? (
           /* THE DISC BECOMES THE BAR. Open, search is not a control sitting
              beside the page's name — it is the only thing on the line, spread
@@ -94,7 +100,7 @@ export function LibraryBar() {
              `relative`, so the X is positioned against the pill rather than
              placed in a grid column — which is what the field's right padding
              reserves room for. */
-          <div className="relative col-span-3 motion-safe:animate-in motion-safe:fade-in-0 motion-safe:duration-150">
+          <div data-search-field className="relative col-span-3">
             <input
               type="search"
               autoFocus
@@ -128,7 +134,7 @@ export function LibraryBar() {
         ) : (
           <>
             <div aria-hidden />
-            <h1 className="min-w-0 truncate text-center font-heading text-base font-medium tracking-tight text-ink">
+            <h1 data-search-rest className="min-w-0 truncate text-center font-heading text-base font-medium tracking-tight text-ink">
               Library
             </h1>
             <button
@@ -138,6 +144,7 @@ export function LibraryBar() {
               /* White, not accent. Search commits nothing — it narrows a
                  list — and the accent is the floating New article button. It
                  matches the menu button at the other end of the same line. */
+              data-search-rest
               className={`justify-self-end ${PAGE_ACTION_BUTTON_QUIET}`}
             >
               <Search aria-hidden className="size-5" />

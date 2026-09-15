@@ -1,8 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useRef, useState } from "react";
+import { useLayoutEffect, useRef } from "react";
+import gsap from "gsap";
 import { Trash2 } from "lucide-react";
+import { MOTION, duration } from "@/lib/motion";
 import { TableCell, TableRow } from "@/components/ui/table";
 import { Checkbox } from "@/components/ui/checkbox";
 import type { ProjectStatus } from "@/db/schema";
@@ -179,23 +181,53 @@ export function LibraryItem({
   onOpenChange: (open: boolean) => void;
   onDelete: () => void;
 }) {
-  /* While a finger is on the card its position follows the finger with no
-     easing; `null` otherwise, and the card rests open or closed. A ref as well
-     as state, so the release reads where the card actually is rather than the
-     position from the last render. */
-  const [dragX, setDragX] = useState<number | null>(null);
-  const live = useRef<number | null>(null);
+  /* GSAP MOVES THE CARD, NOT REACT. While a finger is on it the card is set to
+     the finger's position on every pointer event — no render and no easing, so
+     it never lags behind. On release, and when it is opened or closed from
+     outside (a touch elsewhere), it tweens to rest with the product's easing.
+     Delete grows and fades in with the distance the card has travelled. */
+  const cardRef = useRef<HTMLDivElement>(null);
+  const deleteRef = useRef<HTMLButtonElement>(null);
   const drag = useRef<{ x: number; y: number; base: number; axis: "x" | "y" | null } | null>(null);
   /* A drag ends in a click, which would otherwise open the article just
      dragged. */
   const dragged = useRef(false);
 
-  const x = dragX ?? (open ? -SWIPE_OPEN : 0);
-
-  const move = (next: number | null) => {
-    live.current = next;
-    setDragX(next);
+  /** Put the card at `x`, and uncover Delete by as much as that travels. */
+  const place = (x: number) => {
+    const shown = Math.min(1, Math.max(0, -x / SWIPE_OPEN));
+    gsap.set(cardRef.current, { x });
+    gsap.set(deleteRef.current, { scale: 0.6 + 0.4 * shown, autoAlpha: shown });
   };
+
+  /** To rest, open or shut. Both decelerate into place: the card settling,
+      not leaving. */
+  const settle = (toOpen: boolean) => {
+    const seconds = duration(MOTION.CONTENT);
+    gsap.to(cardRef.current, {
+      x: toOpen ? -SWIPE_OPEN : 0,
+      duration: seconds,
+      ease: MOTION.EASE_ENTER,
+      overwrite: "auto",
+    });
+    gsap.to(deleteRef.current, {
+      scale: toOpen ? 1 : 0.6,
+      autoAlpha: toOpen ? 1 : 0,
+      duration: seconds,
+      ease: MOTION.EASE_ENTER,
+      overwrite: "auto",
+    });
+  };
+
+  /* The first render places the card without motion; after that a change of
+     `open` from outside the card tweens it. Compared rather than counted, so
+     React's development double-run of effects does not animate on arrival. */
+  const shownOpen = useRef<boolean | null>(null);
+  useLayoutEffect(() => {
+    if (shownOpen.current === null) place(open ? -SWIPE_OPEN : 0);
+    else if (shownOpen.current !== open && !drag.current) settle(open);
+    shownOpen.current = open;
+  }, [open]);
 
   return (
     <li
@@ -228,13 +260,14 @@ export function LibraryItem({
       <div className="absolute inset-y-0 right-0 grid w-[88px] place-items-center">
         <button
           type="button"
+          ref={deleteRef}
           data-swipe-delete
           onClick={onDelete}
           tabIndex={open ? 0 : -1}
           aria-hidden={!open}
           aria-label={`Delete ${title}`}
           title="Delete"
-          className="grid size-11 place-items-center rounded-full bg-destructive text-white transition-[background-color,transform] duration-(--duration-fast) ease-(--ease-out) active:scale-95 active:bg-danger-hover focus-visible:outline-none focus-visible:[outline:2px_solid_var(--accent)] focus-visible:[outline-offset:2px]"
+          className="grid size-11 place-items-center rounded-full bg-destructive text-white transition-colors duration-(--duration-fast) ease-(--ease-out) active:bg-danger-hover focus-visible:outline-none focus-visible:[outline:2px_solid_var(--accent)] focus-visible:[outline-offset:2px]"
         >
           <Trash2 aria-hidden className="size-5" />
         </button>
@@ -244,14 +277,19 @@ export function LibraryItem({
         /* `pan-y` leaves vertical movement to the browser and hands horizontal
            movement to the swipe, so dragging a card sideways never also drags
            the page. `relative` lets the title's stretched link cover the card. */
+        ref={cardRef}
         className="relative flex touch-pan-y select-none items-center gap-3 rounded-2xl border border-line bg-surface px-3 py-3 [-webkit-touch-callout:none]"
-        style={{
-          transform: x ? `translateX(${x}px)` : undefined,
-          transition: dragX === null ? "transform 240ms var(--ease-out)" : "none",
-        }}
         onPointerDown={(event) => {
           dragged.current = false;
-          drag.current = { x: event.clientX, y: event.clientY, base: open ? -SWIPE_OPEN : 0, axis: null };
+          /* Catch the card where it is, mid-settle or at rest, so a finger that
+             lands during a tween picks it up instead of it jumping. */
+          gsap.killTweensOf([cardRef.current, deleteRef.current]);
+          drag.current = {
+            x: event.clientX,
+            y: event.clientY,
+            base: Number(gsap.getProperty(cardRef.current, "x")) || 0,
+            axis: null,
+          };
         }}
         onPointerMove={(event) => {
           const d = drag.current;
@@ -262,7 +300,9 @@ export function LibraryItem({
             if (Math.abs(dx) < SWIPE_SLOP && Math.abs(dy) < SWIPE_SLOP) return;
             d.axis = Math.abs(dx) > Math.abs(dy) ? "x" : "y";
             if (d.axis === "y") {
+              /* A scroll: let go, and finish any settle the touch interrupted. */
               drag.current = null;
+              settle(open);
               return;
             }
             dragged.current = true;
@@ -276,15 +316,22 @@ export function LibraryItem({
           /* Left only, and a little past Delete with resistance, so the end of
              the travel is felt rather than hit. */
           const raw = d.base + dx;
-          move(raw > 0 ? 0 : raw < -SWIPE_OPEN ? -SWIPE_OPEN + (raw + SWIPE_OPEN) / 3 : raw);
+          place(raw > 0 ? 0 : raw < -SWIPE_OPEN ? -SWIPE_OPEN + (raw + SWIPE_OPEN) / 3 : raw);
         }}
         onPointerUp={() => {
           const d = drag.current;
           drag.current = null;
-          if (!d || d.axis !== "x") return;
-          const at = live.current ?? d.base;
-          move(null);
-          onOpenChange(at <= -SWIPE_OPEN / 2);
+          if (!d) return;
+          if (d.axis !== "x") {
+            /* A tap: finish any settle it interrupted. */
+            settle(open);
+            return;
+          }
+          /* RELEASE: past half of Delete it opens, short of it it closes, and
+             either way GSAP carries it the rest of the distance. */
+          const next = Number(gsap.getProperty(cardRef.current, "x")) <= -SWIPE_OPEN / 2;
+          settle(next);
+          if (next !== open) onOpenChange(next);
           /* THE SWALLOW LASTS ONE CLICK, NOT UNTIL THE NEXT ONE. A browser does
              not always follow a drag with a click; left set, the flag ate the
              next real tap — Delete itself. The click a drag does produce fires
@@ -295,7 +342,7 @@ export function LibraryItem({
         }}
         onPointerCancel={() => {
           drag.current = null;
-          move(null);
+          settle(open);
         }}
       >
       <span className="grid size-12 shrink-0 place-items-center overflow-hidden rounded-lg bg-deep">

@@ -8,7 +8,6 @@ import { CopyButton } from "@/components/copy-button";
 import { DropdownMenu } from "radix-ui";
 import { RAIL_COLUMN, RAIL_CONTENT, RAIL_GRID, StageShell } from "./stage-shell";
 import {
-  STAGE_ACTION_BUTTON,
   STAGE_ACTION_SLOT,
   StageAction,
   StageSheet,
@@ -2006,37 +2005,24 @@ function PublishRail({
       <div className={STAGE_ACTION_SLOT}>
         <DropdownMenu.Root>
           <DropdownMenu.Trigger
-            className={STAGE_ACTION_BUTTON}
+            /* A PILL THAT SAYS "PUBLISH", NOT A PAPER PLANE. The other stages'
+               corner discs are steps — an arrow onward — but this one is the
+               act the whole pipeline ends in, and a glyph left it to be
+               guessed. 44 tall like every button on a phone, the accent, and
+               the word; it still opens the menu that asks live or draft. The
+               word is the button's name, so it needs no separate label. */
+            className="inline-flex h-11 items-center gap-1.5 rounded-full bg-accent px-4 text-sm font-semibold whitespace-nowrap text-white shadow-[var(--shadow-card)] transition-colors duration-(--duration-fast) ease-(--ease-out) enabled:hover:bg-accent-hover data-[state=open]:bg-accent-hover disabled:cursor-not-allowed disabled:bg-chrome-active disabled:text-ink-3 focus-visible:outline-none focus-visible:shadow-[var(--shadow-focus)]"
             disabled={disabled}
-            aria-label={isLive ? "Republish this article" : "Publish this article"}
-            title={isLive ? "Republish this article" : "Publish this article"}
           >
             {busy ? (
-              <LoaderCircle aria-hidden className="size-5 animate-spin motion-reduce:animate-none" />
+              <>
+                <LoaderCircle aria-hidden className="size-4 animate-spin motion-reduce:animate-none" />
+                Publishing…
+              </>
+            ) : isLive ? (
+              "Republish"
             ) : (
-              /* OPTICALLY CENTRED, NOT GEOMETRICALLY — and measured rather
-                 than guessed, because guessing got the direction backwards
-                 first time. The plane's INK BOX is dead centre in the 24-unit
-                 frame (2 to 22 on both axes), which is exactly why centring
-                 the box looks wrong: the shape inside it is a triangle with
-                 its tip in the top-right corner and its swallowtail notch at
-                 the bottom-left, so the area it actually covers is weighted
-                 high and right. Sampling the closed outline puts the centroid
-                 at (13.8, 10.2) against a frame centre of (12, 12).
-
-                 HALF OF THAT, THOUGH, NOT ALL OF IT. Moving the glyph by the
-                 full difference is what the arithmetic says and it reads
-                 over-corrected: the eye does not weigh a pointed shape purely
-                 by ink, it also tracks how close the TIP comes to the edge, and
-                 the full shift leaves the plane sitting low and left with the
-                 tip stranded in open space. Rendered side by side at 4x, zero
-                 sits high-right, the full correction sits low-left, and half of
-                 it is the one that reads centred — which is the same rule of
-                 thumb a play triangle follows.
-
-                 The spinner is radially symmetric and takes no correction,
-                 which is why this rides on the glyph and not the button. */
-              <Send aria-hidden className="size-5 translate-x-[-0.75px] translate-y-[0.75px]" />
+              "Publish"
             )}
           </DropdownMenu.Trigger>
           <DropdownMenu.Portal>

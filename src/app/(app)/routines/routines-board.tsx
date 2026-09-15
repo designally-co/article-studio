@@ -13,6 +13,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { PageHeading } from "@/components/page-heading";
 import { PageFab, PAGE_ACTION_BUTTON_QUIET, TopBlur } from "@/components/page-bar";
+import { useSearchBarMotion } from "@/lib/search-bar-motion";
 import { EmptyState } from "@/components/empty-state";
 import { DropdownMenu as DropdownMenuPrimitive } from "radix-ui";
 import { Clock, MoreHorizontal, Pencil, Play, Search, Trash2, X } from "lucide-react";
@@ -273,6 +274,9 @@ export function RoutinesBoard({
                 <RoutineSearch value={query} onChange={setQuery} />
                 <Button
                   type="button"
+                  /* 36 tall, like Library's New article and search, so the two
+                     pages' heading lines are the same row. */
+                  className="h-9"
                   onClick={() => {
                     setCreating(true);
                     setEditing(null);
@@ -374,8 +378,8 @@ export function RoutinesBoard({
  * The desktop search, on the heading's line beside New routine.
  *
  * Library's field — outlined on the sunken ground, the magnifier inside it,
- * a clear button in its right end once there is something to clear — at the
- * height of the button beside it (44), so the two sit on one line.
+ * a clear button in its right end once there is something to clear — 224 by
+ * 36, exactly Library's, with New routine beside it at the same height.
  */
 function RoutineSearch({ value, onChange }: { value: string; onChange: (value: string) => void }) {
   return (
@@ -387,7 +391,7 @@ function RoutineSearch({ value, onChange }: { value: string; onChange: (value: s
         onChange={(event) => onChange(event.target.value)}
         placeholder="Search routines…"
         aria-label="Search routines"
-        className="cs-select cs-field-outline !w-full pl-9 pr-8 text-sm [&::-webkit-search-cancel-button]:hidden"
+        className="cs-select cs-field-outline !h-9 !w-full pl-9 pr-8 text-sm [&::-webkit-search-cancel-button]:hidden"
       />
       {value && (
         <button
@@ -422,6 +426,7 @@ function RoutinesBar({
   onQueryChange: (value: string) => void;
 }) {
   const [searching, setSearching] = useState(false);
+  const { barRef, closeField } = useSearchBarMotion(searching);
 
   return (
     <div
@@ -430,9 +435,9 @@ function RoutinesBar({
       }`}
     >
       <TopBlur />
-      <div className="mx-auto grid h-12 w-full max-w-7xl grid-cols-[2.75rem_minmax(0,1fr)_2.75rem] items-center gap-2 px-3 sm:px-8">
+      <div ref={barRef} className="mx-auto grid h-12 w-full max-w-7xl grid-cols-[2.75rem_minmax(0,1fr)_2.75rem] items-center gap-2 px-3 sm:px-8">
         {searching ? (
-          <div className="relative col-span-3 motion-safe:animate-in motion-safe:fade-in-0 motion-safe:duration-150">
+          <div data-search-field className="relative col-span-3">
             <input
               type="search"
               autoFocus
@@ -444,10 +449,13 @@ function RoutinesBar({
             />
             <button
               type="button"
-              onClick={() => {
-                setSearching(false);
-                onQueryChange("");
-              }}
+              onClick={() =>
+                /* Fold the field back into its disc (GSAP), then close. */
+                closeField(() => {
+                  setSearching(false);
+                  onQueryChange("");
+                })
+              }
               aria-label="Close search"
               className="absolute right-1 top-1/2 grid size-7 -translate-y-1/2 place-items-center rounded-full text-ink-3 transition-colors duration-(--duration-fast) ease-(--ease-out) hover:bg-chrome hover:text-ink focus-visible:outline-none focus-visible:shadow-[var(--shadow-focus)]"
             >
@@ -457,7 +465,7 @@ function RoutinesBar({
         ) : (
           <>
             <div aria-hidden />
-            <h1 className="min-w-0 truncate text-center font-heading text-base font-medium tracking-tight text-ink">
+            <h1 data-search-rest className="min-w-0 truncate text-center font-heading text-base font-medium tracking-tight text-ink">
               Routines
             </h1>
             {hasRoutines ? (
@@ -465,6 +473,7 @@ function RoutinesBar({
                 type="button"
                 onClick={() => setSearching(true)}
                 aria-label="Search routines"
+                data-search-rest
                 className={`justify-self-end ${PAGE_ACTION_BUTTON_QUIET}`}
               >
                 <Search aria-hidden className="size-5" />
