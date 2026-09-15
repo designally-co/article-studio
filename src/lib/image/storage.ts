@@ -4,6 +4,7 @@ import fs from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import type { GeneratedImage } from "./providers";
 import { loadSharp } from "./sharp";
+import { localFallbacksAllowed } from "../local-fallbacks";
 import {
   R2_VARS,
   currentPublicUrl,
@@ -108,6 +109,15 @@ export async function saveImage(img: GeneratedImage): Promise<StoredRef> {
   if (process.env.VERCEL) {
     throw new Error(
       `Image storage is not configured on this deployment, so the image was not saved. Set ${R2_VARS.join(", ")} and redeploy.`,
+    );
+  }
+
+  /* Nor on any other production server, unless asked. A container's disk goes
+     with the container, so an image written there outlives only the release
+     that wrote it — the same missing cover, a few weeks later. */
+  if (!localFallbacksAllowed()) {
+    throw new Error(
+      `Image storage is not configured, so the image was not saved. Set ${R2_VARS.join(", ")} and restart.`,
     );
   }
 

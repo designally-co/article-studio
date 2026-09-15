@@ -268,17 +268,16 @@ margin.
 
 ## Docker / self-hosting
 
-A `Dockerfile` and `docker-compose.yml` are provided from day one.
+The `Dockerfile` builds a linux/amd64 image of the Next.js standalone output.
+`.github/workflows/release.yml` builds and tests it on every pull request, and
+publishes it to GHCR as `sha-<full commit>` from a `release-*` tag. The
+Portainer stack is `deploy/compose.production.yml`. How it is deployed,
+migrated and rolled back is in [docs/deploy-nas.md](docs/deploy-nas.md).
 
-```bash
-# with a .env file next to docker-compose.yml (see .env.example)
-docker compose up --build
-```
-
-The image builds the Next.js standalone output and runs `node server.js`. The
-`content_studio_data` volume persists local fallbacks (PGlite data, the dev auth
-secret, and on-disk images) across restarts; when `DATABASE_URL` and the `R2_*`
-variables are set, those local fallbacks are not used.
+A production process does not fall back to local disk: without `DATABASE_URL`,
+`ENCRYPTION_KEY` or the `R2_*` variables it refuses, and `/api/health` names
+what is missing. `ALLOW_LOCAL_FALLBACKS=1` allows them for a disposable
+production run, such as `npm start` on a laptop.
 
 ## Scripts
 

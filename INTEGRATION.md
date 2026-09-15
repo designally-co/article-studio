@@ -347,8 +347,10 @@ There is no webhook or outbound event system beyond the Hub publish. `publishToH
 | `CRON_SECRET` | for the autopilot | Shared secret for `/api/cron/autopilot`. `openssl rand -hex 32`. Unset → the endpoint answers `503` and the autopilot cannot run at all. Setting it starts nothing on its own; routines are created and switched on in the Routines tab. |
 | `SKIP_DB_MIGRATE` | recommended in prod | `1` stops every cold start running the migrator. See §10. |
 | `DB_FORCE_TRANSACTION_POOLER` | rarely | `1` rewrites a Supabase pooler URL `:5432` → `:6543`. **Off by default deliberately — see §11.** |
+| `APP_COMMIT_SHA` | set by the image | The commit a container image was built from, reported by `/api/health` as `commit` and `commitSha`. The Dockerfile sets it from a build argument; Vercel supplies `VERCEL_GIT_COMMIT_SHA` instead. |
+| `ALLOW_LOCAL_FALLBACKS` | never in a deployment | `1` lets a production process use PGlite, `./data/images` and a generated encryption key. Without it, production refuses all three. For `npm start` on a laptop only. |
 
-If the `R2_*` variables are unset, images are written to `./data/images` and served by the app — which requires a persistent volume, and is refused on Vercel.
+If the `R2_*` variables are unset, images are written to `./data/images` and served by the app — in development only. Production refuses, unless `ALLOW_LOCAL_FALLBACKS=1`, and Vercel refuses regardless.
 
 ---
 
@@ -383,11 +385,7 @@ On boot, `getDb()` runs the migrator and seeder automatically **unless `SKIP_DB_
 
 This replaced a GitHub Actions workflow set to `0,30 * * * *`. Measured over two days, GitHub delivered it every TWO TO FOUR HOURS — 00:27, 08:59, 13:29, 17:25, 20:06, 22:53, 01:04 UTC — because it throttles frequent schedules on shared runners and drops most fires. A routine due at 09:00 therefore sat until a delivery happened to land on it, and the article often appeared only once somebody opened the app, since an open tab steps a run too. Anything that can make an HTTPS request on a timer works here, but it has to actually keep the interval.
 
-**Docker** — multi-stage build to `.next/standalone`, runs as non-root `nextjs` (uid 1001), exposes 3000, mounts `/app/data` for PGlite/local images/secrets:
-
-```bash
-docker compose up --build
-```
+**Docker** — multi-stage linux/amd64 build to `.next/standalone`, runs as non-root `nextjs` (uid 1001), exposes 3000, has a `HEALTHCHECK` on `/api/health`, and keeps no state on disk. The image also carries `scripts/migrate.ts`, so a release is migrated by the same image that serves it — as a one-off command, never on start. Building, publishing, the Portainer stack, the scheduler at cutover and rollback are in [docs/deploy-nas.md](docs/deploy-nas.md).
 
 ---
 
