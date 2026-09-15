@@ -59,22 +59,29 @@ export function ModelSelectionCard({
         <input type="hidden" name="research" value={research} />
         <input type="hidden" name="drafting" value={drafting} />
 
-        <ModelField
-          id="model-research"
-          label="Research &amp; trends"
-          value={research}
-          onChange={setResearch}
-          options={textModels}
-        />
-        <ModelField
-          id="model-drafting"
-          label="Outline, drafts &amp; refinement"
-          value={drafting}
-          onChange={setDrafting}
-          options={textModels}
-        />
+        {/* SIDE BY SIDE: two parallel choices of the same kind, read as a pair.
+            Stacked on a phone, where half the sheet is too narrow for a model
+            name. */}
+        <div className="grid gap-5 sm:grid-cols-2 sm:gap-4">
+          <ModelField
+            id="model-research"
+            label="Research &amp; trends"
+            value={research}
+            onChange={setResearch}
+            options={textModels}
+          />
+          <ModelField
+            id="model-drafting"
+            label="Outline, drafts &amp; refinement"
+            value={drafting}
+            onChange={setDrafting}
+            options={textModels}
+          />
+        </div>
 
-        <div>
+        {/* On the right, where every other sheet puts its submit. It saves
+            these two models and nothing else in the sheet. */}
+        <div className="flex justify-end">
           <Button type="submit">Save models</Button>
         </div>
       </form>
