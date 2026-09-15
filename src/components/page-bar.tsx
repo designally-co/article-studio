@@ -21,9 +21,9 @@ import { Plus } from "lucide-react";
  * first. On a desk the action stays a button on the heading line, where the
  * page's other controls are.
  *
- * 44 across, like every other icon button on a phone; the accent, a raised
- * shadow and a plus; 16 off the edges, lifted clear of a phone's home
- * indicator. Below the drawer and dialogs, above the
+ * A 44-tall pill, the height of every other button on a phone: the accent, a
+ * raised shadow, a plus and the name of what it makes; 16 off the edges,
+ * lifted clear of a phone's home indicator. Below the drawer and dialogs, above the
  * page. A link when it navigates, a button when it opens something on this page.
  */
 export function PageFab({
@@ -36,15 +36,23 @@ export function PageFab({
   onClick?: () => void;
 }) {
   const className =
-    "fixed right-4 bottom-[max(1rem,calc(env(safe-area-inset-bottom)+0.5rem))] z-(--z-sticky) grid size-11 place-items-center rounded-full bg-accent text-white shadow-[var(--shadow-pop)] transition-[background-color,transform] duration-(--duration-fast) ease-(--ease-out) hover:bg-accent-hover active:scale-95 focus-visible:outline-none focus-visible:shadow-[var(--shadow-focus)] sm:right-6 sm:bottom-6 lg:hidden";
-  const icon = <Plus aria-hidden className="size-5" />;
+    "fixed right-4 bottom-[max(1rem,calc(env(safe-area-inset-bottom)+0.5rem))] z-(--z-sticky) inline-flex h-11 items-center gap-1.5 rounded-full bg-accent pl-3.5 pr-4 text-sm font-semibold whitespace-nowrap text-white shadow-[var(--shadow-pop)] transition-[background-color,transform] duration-(--duration-fast) ease-(--ease-out) hover:bg-accent-hover active:scale-95 focus-visible:outline-none focus-visible:shadow-[var(--shadow-focus)] sm:right-6 sm:bottom-6 lg:hidden";
+  /* A PILL THAT SAYS WHAT IT MAKES. A bare + in the corner was one glyph for
+     two different things; "+ New article" and "+ New routine" say which. The
+     label is the button's own text, so it is also its accessible name. */
+  const content = (
+    <>
+      <Plus aria-hidden className="size-5 shrink-0" />
+      {label}
+    </>
+  );
   return href ? (
-    <Link href={href} aria-label={label} title={label} className={className}>
-      {icon}
+    <Link href={href} className={className}>
+      {content}
     </Link>
   ) : (
-    <button type="button" onClick={onClick} aria-label={label} title={label} className={className}>
-      {icon}
+    <button type="button" onClick={onClick} className={className}>
+      {content}
     </button>
   );
 }
