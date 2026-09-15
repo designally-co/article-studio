@@ -2,15 +2,26 @@ import "server-only";
 import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from "node:crypto";
 import path from "node:path";
 import fs from "node:fs";
+import { localFallbacksAllowed } from "./local-fallbacks";
 
 /**
  * At-rest encryption key for API keys stored in the database: ENCRYPTION_KEY
  * env var in production; in local dev a generated key persisted under
  * ./data so encrypted values survive restarts (mirrors AUTH_SECRET in auth.ts).
+ *
+ * NEVER GENERATED IN PRODUCTION. A generated key is a different key, and every
+ * provider key saved under the real one stops decrypting — silently, the next
+ * time somebody's saved key is read. So a production process without
+ * ENCRYPTION_KEY refuses, rather than inventing one (see local-fallbacks.ts).
  */
 function getKey(): Buffer {
   if (process.env.ENCRYPTION_KEY) {
     return scryptSync(process.env.ENCRYPTION_KEY, "content-studio-api-keys", 32);
+  }
+  if (!localFallbacksAllowed()) {
+    throw new Error(
+      "ENCRYPTION_KEY is not set. Set it to the exact value this deployment's saved keys were encrypted with — a new value cannot read them.",
+    );
   }
   const file = path.join(process.cwd(), "data", "encryption-key");
   fs.mkdirSync(path.dirname(file), { recursive: true });

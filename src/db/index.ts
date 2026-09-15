@@ -6,6 +6,7 @@ import { migrate as migratePglite } from "drizzle-orm/pglite/migrator";
 import { migrate as migratePostgres } from "drizzle-orm/postgres-js/migrator";
 import * as schema from "./schema";
 import { seedIfEmpty } from "./seed";
+import { localFallbacksAllowed } from "../lib/local-fallbacks";
 
 export type DB = PgliteDatabase<typeof schema> | PostgresJsDatabase<typeof schema>;
 
@@ -74,6 +75,15 @@ function create(): Cache {
       console.error("[db] migrate/seed failed, continuing without it:", error);
     });
     return { db, ready };
+  }
+
+  /* A PRODUCTION PROCESS WITHOUT DATABASE_URL STOPS HERE. Falling through
+     boots an empty embedded database, migrates and seeds it, and every health
+     check then passes against it — a deployment that looks fine and holds none
+     of the data. `next build` is let through: it runs with NODE_ENV=production
+     and has no business needing a database. */
+  if (!localFallbacksAllowed() && process.env.NEXT_PHASE !== "phase-production-build") {
+    throw new Error("DATABASE_URL is not set. A production process does not fall back to an embedded database.");
   }
 
   // Local development: embedded Postgres (PGlite), zero external services.

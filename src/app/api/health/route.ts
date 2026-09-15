@@ -2,6 +2,7 @@ import { getDb } from "@/db";
 import { sql } from "drizzle-orm";
 import { checkSchema, expectedMigrationCount, type SchemaCheck } from "@/lib/schema-status";
 import { R2_VARS, probeR2, r2Config } from "@/lib/image/r2";
+import { localFallbacksAllowed } from "@/lib/local-fallbacks";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -168,9 +169,10 @@ async function checkSharp(): Promise<{ ok: boolean; version?: string; error?: st
  * Where new images go, and whether that store answers.
  *
  * PART OF `ok`, for the same reason as sharp: a deployment that cannot store an
- * image cannot make one. Local disk passes only off Vercel — on a serverless
- * host `saveImage` refuses it outright, so calling it healthy there would be
- * reporting the failure as fine.
+ * image cannot make one. Local disk passes only where `saveImage` would use it
+ * — never on Vercel, and never in production unless ALLOW_LOCAL_FALLBACKS says
+ * so — because calling it healthy anywhere else would be reporting the failure
+ * as fine.
  *
  * Cached for a minute, like the other outbound checks.
  */
@@ -186,7 +188,7 @@ async function checkImageStorage(): Promise<StorageCheck> {
     return { ok: false, backend: "r2", note: error instanceof Error ? error.message : "misconfigured" };
   }
   if (!config) {
-    return process.env.VERCEL
+    return process.env.VERCEL || !localFallbacksAllowed()
       ? { ok: false, backend: "none", note: `not configured, so every image upload fails. Set ${R2_VARS.join(", ")}.` }
       : { ok: true, backend: "local", note: "./data/images" };
   }
@@ -208,6 +210,10 @@ async function checkImageStorage(): Promise<StorageCheck> {
 
 export async function GET() {
   const started = Date.now();
+
+  // A container image carries its commit as APP_COMMIT_SHA (set by the
+  // Dockerfile from the release workflow); Vercel supplies its own.
+  const commitSha = process.env.APP_COMMIT_SHA || process.env.VERCEL_GIT_COMMIT_SHA || undefined;
 
   // Presence only. Never the value, and never a length — a length is a hint.
   const env = {
@@ -279,7 +285,9 @@ export async function GET() {
       anthropic.ok !== false &&
       sharp.ok &&
       imageStorage.ok !== false,
-    commit: process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? "local",
+    commit: commitSha?.slice(0, 7) ?? "local",
+    // The whole SHA as well, because a container image is tagged with it.
+    commitSha: commitSha ?? null,
     branch: process.env.VERCEL_GIT_COMMIT_REF ?? null,
     environment: process.env.VERCEL_ENV ?? process.env.NODE_ENV ?? null,
     region: process.env.VERCEL_REGION ?? null,

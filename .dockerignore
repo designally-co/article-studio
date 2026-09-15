@@ -1,10 +1,17 @@
+# Environment files never enter the build context, whatever their suffix.
+.env*
+!.env.example
+
 node_modules
 .next
 data
 .git
-.env
-.env.local
+.github
+.vercel
+deploy
+docs
+workers
 npm-debug.log
+tsconfig.tsbuildinfo
 Dockerfile
-docker-compose.yml
 *.md

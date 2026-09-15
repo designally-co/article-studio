@@ -1,0 +1,193 @@
+name: Release
+
+# The runbook's GitHub Actions contract, for Article Studio.
+#
+#   Every pull request   lint, type check and production build; then the image
+#                        is built for linux/amd64, migrated against a throwaway
+#                        Postgres, started, and its /api/health checked.
+#                        Nothing is pushed.
+#   A release-* tag      the same, then the image that passed is pushed to GHCR
+#   (or a manual run     as sha-<full commit> — never latest — and the image,
+#   on main)             digest and commit are written to the run summary.
+#
+# Nothing here deploys. Production changes only when Ake points the Portainer
+# stack at a new IMAGE_TAG (docs/deploy-nas.md).
+
+on:
+  pull_request:
+  push:
+    tags: ["release-*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  IMAGE: ghcr.io/designally-co/content-studio
+  # The commit the image is built from: the branch head on a pull request (not
+  # GitHub's merge commit), the tagged or dispatched commit otherwise.
+  COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+  RELEASE: ${{ startsWith(github.ref, 'refs/tags/release-') || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') }}
+
+jobs:
+  checks:
+    name: Lint, types, build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run lint
+      - run: npx tsc --noEmit
+      - name: Production build
+        env:
+          # Placeholders, not credentials — see the Dockerfile.
+          AUTH_GOOGLE_ID: build-placeholder
+          AUTH_GOOGLE_SECRET: build-placeholder
+          NEXT_TELEMETRY_DISABLED: 1
+        run: npm run build
+
+  image:
+    name: Image (linux/amd64)
+    needs: checks
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          # A throwaway database that exists only for this job.
+          POSTGRES_PASSWORD: ci-throwaway
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      LOCAL_TAG: content-studio:ci
+      CI_DATABASE_URL: postgres://postgres:ci-throwaway@127.0.0.1:5432/postgres
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          build-args: APP_COMMIT_SHA=${{ env.COMMIT }}
+          tags: ${{ env.LOCAL_TAG }}
+          load: true
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Architecture and health check are baked in
+        run: |
+          platform="$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$LOCAL_TAG")"
+          echo "platform: $platform"
+          test "$platform" = "linux/amd64"
+          docker image inspect --format '{{json .Config.Healthcheck}}' "$LOCAL_TAG" | grep -q '/api/health'
+
+      - name: No credential-shaped strings in the image history
+        run: |
+          if docker history --no-trunc --format '{{.CreatedBy}}' "$LOCAL_TAG" \
+            | grep -Eq 'sk-ant-|AKIA[0-9A-Z]{16}|postgres(ql)?://[^[:space:]]+:[^[:space:]@]+@'; then
+            echo "::error::A credential-shaped string is in the image history."
+            exit 1
+          fi
+
+      - name: Migrations apply as a one-off command
+        run: |
+          docker run --rm --network host -e DATABASE_URL="$CI_DATABASE_URL" \
+            "$LOCAL_TAG" node --experimental-strip-types scripts/migrate.ts
+
+      - name: The app starts and answers /api/health
+        run: |
+          docker run -d --name smoke --network host \
+            -e HOSTNAME=0.0.0.0 \
+            -e SKIP_DB_MIGRATE=1 \
+            -e DATABASE_URL="$CI_DATABASE_URL" \
+            -e AUTH_SECRET=ci-throwaway \
+            -e AUTH_GOOGLE_ID=ci-placeholder \
+            -e AUTH_GOOGLE_SECRET=ci-placeholder \
+            "$LOCAL_TAG"
+          for attempt in $(seq 1 30); do
+            if curl -s -o health.json http://127.0.0.1:3000/api/health; then break; fi
+            sleep 2
+          done
+          node .github/scripts/check-health.mjs health.json "$COMMIT"
+
+      - name: Server log on failure
+        if: failure()
+        run: docker logs smoke 2>&1 | tail -80 || true
+
+      - name: Keep the tested image for publishing
+        if: env.RELEASE == 'true'
+        run: docker save "$LOCAL_TAG" | gzip > image.tar.gz
+
+      - uses: actions/upload-artifact@v4
+        if: env.RELEASE == 'true'
+        with:
+          name: image
+          path: image.tar.gz
+          retention-days: 7
+
+  publish:
+    # A fixed name: on a pull request this job is skipped, and GitHub then
+    # lists an expression in the name unevaluated.
+    name: Publish to GHCR
+    needs: image
+    if: startsWith(github.ref, 'refs/tags/release-') || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: The commit is on main
+        run: |
+          git fetch --quiet origin main
+          if ! git merge-base --is-ancestor "$COMMIT" origin/main; then
+            echo "::error::$COMMIT is not on main. Release only reviewed, merged commits."
+            exit 1
+          fi
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: image
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push the tested image
+        run: |
+          gunzip -c image.tar.gz | docker load
+          docker tag content-studio:ci "$IMAGE:sha-$COMMIT"
+          docker push "$IMAGE:sha-$COMMIT"
+          digest="$(docker image inspect --format '{{index .RepoDigests 0}}' "$IMAGE:sha-$COMMIT")"
+          {
+            echo "### Article Studio release image"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Image | \`$IMAGE:sha-$COMMIT\` |"
+            echo "| Digest | \`$digest\` |"
+            echo "| Commit | \`$COMMIT\` |"
+            echo "| Platform | linux/amd64 |"
+            echo ""
+            echo "Portainer: set \`IMAGE_TAG=sha-$COMMIT\`. Deploying it needs Ake's approval."
+          } >> "$GITHUB_STEP_SUMMARY"

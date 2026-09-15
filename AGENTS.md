@@ -21,4 +21,6 @@ and everyone imports them from there.
 
 **Verify the built app, not just the build.** `next build` succeeded on the
 change that shipped the above. Run `next start` and load the pages the change
-touches before calling it done.
+touches before calling it done. Against local PGlite that is
+`ALLOW_LOCAL_FALLBACKS=1 npm start` — a production process otherwise refuses
+to run without `DATABASE_URL`.
