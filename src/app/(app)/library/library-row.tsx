@@ -1,6 +1,8 @@
 "use client";
 
 import Link from "next/link";
+import { useRef, useState } from "react";
+import { Trash2 } from "lucide-react";
 import { TableCell, TableRow } from "@/components/ui/table";
 import { Checkbox } from "@/components/ui/checkbox";
 import type { ProjectStatus } from "@/db/schema";
@@ -142,16 +144,26 @@ export function LibraryRow({
  * A list of names you can actually read beats a list of names you cannot with
  * a label underneath each one.
  *
- * The checkbox stays. Selecting and using the bar above is the only way to
- * delete anything, here and in the table — removing the tick would remove the
- * capability.
+ * NO SELECTION ON A PHONE: SWIPE A CARD LEFT TO DELETE IT. Choosing eight
+ * articles and deleting them together is desk work, and the checkbox cost the
+ * card its width to sit there in case. On a phone the one thing done to a row is
+ * getting rid of it, so the card does what phone lists do everywhere else (Mail,
+ * Messages): drag it left and it slides off the left edge of the screen,
+ * revealing Delete underneath on the right. Tap Delete, answer the confirmation,
+ * and that one article goes. The desk keeps its checkboxes and bar.
  */
+/** How far an open card sits to the left: the part of Delete it reveals. */
+const SWIPE_OPEN = 88;
+/** A press that travels this far has declared which way it is going. */
+const SWIPE_SLOP = 8;
+
 export function LibraryItem({
   id,
   title,
   imageUrl,
-  selected,
-  onSelectedChange,
+  open,
+  onOpenChange,
+  onDelete,
 }: {
   id: string;
   title: string;
@@ -162,30 +174,130 @@ export function LibraryItem({
   dateLabel?: string;
   status?: ProjectStatus;
   imageUrl: string | null;
-  selected: boolean;
-  onSelectedChange: (next: boolean) => void;
+  /** Whether this card is swiped open, showing Delete. One at a time. */
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onDelete: () => void;
 }) {
+  /* While a finger is on the card its position follows the finger with no
+     easing; `null` otherwise, and the card rests open or closed. A ref as well
+     as state, so the release reads where the card actually is rather than the
+     position from the last render. */
+  const [dragX, setDragX] = useState<number | null>(null);
+  const live = useRef<number | null>(null);
+  const drag = useRef<{ x: number; y: number; base: number; axis: "x" | "y" | null } | null>(null);
+  /* A drag ends in a click, which would otherwise open the article just
+     dragged. */
+  const dragged = useRef(false);
+
+  const x = dragX ?? (open ? -SWIPE_OPEN : 0);
+
+  const move = (next: number | null) => {
+    live.current = next;
+    setDragX(next);
+  };
+
   return (
     <li
-      data-selected={selected || undefined}
-      /* `relative` is what lets the title's stretched link cover the whole
-         item rather than just its own line. */
-      /* Its own plate. `border-line-strong` on selection rather than a fill:
-         the card is white on the page's near-white ground, so `bg-sunken`
-         alone made a picked article read as a HOLE in the stack rather than as
-         one that is picked. The edge states it without changing the surface. */
-      className="relative flex items-center gap-3 rounded-2xl border border-line bg-surface px-3 py-3 transition-colors duration-(--duration-fast) ease-(--ease-out) data-selected:border-line-strong data-selected:bg-sunken"
+      data-swipe-id={id}
+      /* `relative` holds Delete behind the card. Nothing here clips: the card
+         slides off the left edge of the screen, past the page's own padding. */
+      className="relative"
+      onClickCapture={(event) => {
+        /* Delete is its own control and is never swallowed. */
+        if ((event.target as Element).closest("[data-swipe-delete]")) return;
+        if (dragged.current) {
+          dragged.current = false;
+          event.preventDefault();
+          event.stopPropagation();
+          return;
+        }
+        /* A tap on an open card puts it away rather than opening the article
+           behind a Delete that is still showing. */
+        if (open && !(event.target as Element).closest("[data-swipe-delete]")) {
+          event.preventDefault();
+          event.stopPropagation();
+          onOpenChange(false);
+        }
+      }}
     >
-      {/* Above the stretched link, or the link swallows the tick and opens the
-          article instead. */}
-      <span className="relative z-10 shrink-0 self-center">
-        <Checkbox
-          checked={selected}
-          onCheckedChange={(next) => onSelectedChange(next === true)}
-          aria-label={`Select ${title}`}
-        />
-      </span>
+      {/* DELETE, UNDERNEATH: a round icon button in the critical red, centred in
+          the 88px the open card reveals. 44 across, the touch target a thumb
+          needs. The name is on the button for assistive technology; it is out
+          of the tab order and hidden until the card is open. */}
+      <div className="absolute inset-y-0 right-0 grid w-[88px] place-items-center">
+        <button
+          type="button"
+          data-swipe-delete
+          onClick={onDelete}
+          tabIndex={open ? 0 : -1}
+          aria-hidden={!open}
+          aria-label={`Delete ${title}`}
+          title="Delete"
+          className="grid size-11 place-items-center rounded-full bg-destructive text-white transition-[background-color,transform] duration-(--duration-fast) ease-(--ease-out) active:scale-95 active:bg-danger-hover focus-visible:outline-none focus-visible:[outline:2px_solid_var(--accent)] focus-visible:[outline-offset:2px]"
+        >
+          <Trash2 aria-hidden className="size-5" />
+        </button>
+      </div>
 
+      <div
+        /* `pan-y` leaves vertical movement to the browser and hands horizontal
+           movement to the swipe, so dragging a card sideways never also drags
+           the page. `relative` lets the title's stretched link cover the card. */
+        className="relative flex touch-pan-y select-none items-center gap-3 rounded-2xl border border-line bg-surface px-3 py-3 [-webkit-touch-callout:none]"
+        style={{
+          transform: x ? `translateX(${x}px)` : undefined,
+          transition: dragX === null ? "transform 240ms var(--ease-out)" : "none",
+        }}
+        onPointerDown={(event) => {
+          dragged.current = false;
+          drag.current = { x: event.clientX, y: event.clientY, base: open ? -SWIPE_OPEN : 0, axis: null };
+        }}
+        onPointerMove={(event) => {
+          const d = drag.current;
+          if (!d) return;
+          const dx = event.clientX - d.x;
+          const dy = event.clientY - d.y;
+          if (!d.axis) {
+            if (Math.abs(dx) < SWIPE_SLOP && Math.abs(dy) < SWIPE_SLOP) return;
+            d.axis = Math.abs(dx) > Math.abs(dy) ? "x" : "y";
+            if (d.axis === "y") {
+              drag.current = null;
+              return;
+            }
+            dragged.current = true;
+            try {
+              event.currentTarget.setPointerCapture(event.pointerId);
+            } catch {
+              /* A pointer the browser no longer tracks; the drag works without
+                 capture, it just stops following a finger that leaves the card. */
+            }
+          }
+          /* Left only, and a little past Delete with resistance, so the end of
+             the travel is felt rather than hit. */
+          const raw = d.base + dx;
+          move(raw > 0 ? 0 : raw < -SWIPE_OPEN ? -SWIPE_OPEN + (raw + SWIPE_OPEN) / 3 : raw);
+        }}
+        onPointerUp={() => {
+          const d = drag.current;
+          drag.current = null;
+          if (!d || d.axis !== "x") return;
+          const at = live.current ?? d.base;
+          move(null);
+          onOpenChange(at <= -SWIPE_OPEN / 2);
+          /* THE SWALLOW LASTS ONE CLICK, NOT UNTIL THE NEXT ONE. A browser does
+             not always follow a drag with a click; left set, the flag ate the
+             next real tap — Delete itself. The click a drag does produce fires
+             before this timer. */
+          setTimeout(() => {
+            dragged.current = false;
+          }, 0);
+        }}
+        onPointerCancel={() => {
+          drag.current = null;
+          move(null);
+        }}
+      >
       <span className="grid size-12 shrink-0 place-items-center overflow-hidden rounded-lg bg-deep">
         {imageUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
@@ -209,6 +321,7 @@ export function LibraryItem({
         </Link>
 
       </span>
+      </div>
     </li>
   );
 }

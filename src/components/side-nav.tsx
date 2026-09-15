@@ -3,12 +3,12 @@
 import Link from "next/link";
 
 import { FlatMark } from "@/app/mark";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import gsap from "gsap";
 
 import { MOTION, duration } from "@/lib/motion";
-import { Menu, PanelLeftClose, X } from "lucide-react";
+import { ArrowLeft, Menu, PanelLeftClose, X } from "lucide-react";
 import { PAGE_ACTION_BUTTON_QUIET, PAGE_CLOSE_BUTTON } from "./page-bar";
 import { AccountMenu } from "./account-menu";
 import { SettingsSheet } from "./settings/settings-sheet";
@@ -54,6 +54,10 @@ export function SideNav({
   isAdmin?: boolean;
 }) {
   const pathname = usePathname();
+  const router = useRouter();
+  /* An article's pipeline, where the phone's corner button goes back instead of
+     opening the navigation. */
+  const inPipeline = pathname.startsWith("/pipeline/");
   const [open, setOpen] = useState(false);
   /* PRESENCE, SEPARATE FROM INTENT. `open` is what the reader asked for;
      `mounted` is whether the panel is still in the tree. They came apart the
@@ -178,6 +182,25 @@ export function SideNav({
           was the one square of the design where the page stopped showing
           through. The button's own disc is what keeps the icon legible. */}
       <div className="sticky top-0 z-(--z-nav) flex h-12 w-fit shrink-0 items-center px-3 lg:hidden">
+        {inPipeline ? (
+          /* INSIDE AN ARTICLE THE CORNER GOES BACK. The pipeline is a place you
+             came into from somewhere — the Library, Create — and on a phone the
+             way out of it is the way you came, not the whole app's navigation.
+             Back through history when there is one; to the Library when the
+             article was opened straight from a link, where there is nothing to
+             go back to. The same disc as the menu it replaces. */
+          <button
+            type="button"
+            onClick={() => {
+              if (window.history.length > 1) router.back();
+              else router.push("/library");
+            }}
+            className={PAGE_ACTION_BUTTON_QUIET}
+            aria-label="Go back"
+          >
+            <ArrowLeft aria-hidden className="size-5" />
+          </button>
+        ) : (
         <button
           type="button"
           onClick={() => setOpen(true)}
@@ -202,6 +225,7 @@ export function SideNav({
         >
           <Menu aria-hidden className="size-5" />
         </button>
+        )}
       </div>
 
       {mounted && (

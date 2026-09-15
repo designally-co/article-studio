@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -13,7 +13,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import type { ProjectStatus } from "@/db/schema";
-import { deleteArticlesAction } from "./actions";
+import { deleteArticleAction, deleteArticlesAction } from "./actions";
 import { LibraryItem, LibraryRow } from "./library-row";
 import { SortHead } from "./sort-head";
 
@@ -45,6 +45,36 @@ export function ArticleTable({ rows, sort }: { rows: ArticleRow[]; sort: string 
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, start] = useTransition();
+
+  /* The phone's swipe-to-delete: which card is swiped open (one at a time), and
+     which article is waiting on the confirmation. */
+  const [openId, setOpenId] = useState<string | null>(null);
+  const [asking, setAsking] = useState<ArticleRow | null>(null);
+
+  /* A touch anywhere but the open card puts it away. */
+  useEffect(() => {
+    if (!openId) return;
+    const onDown = (event: PointerEvent) => {
+      const card = (event.target as Element | null)?.closest?.("[data-swipe-id]");
+      if (card?.getAttribute("data-swipe-id") !== openId) setOpenId(null);
+    };
+    document.addEventListener("pointerdown", onDown, true);
+    return () => document.removeEventListener("pointerdown", onDown, true);
+  }, [openId]);
+
+  function removeOne(row: ArticleRow) {
+    setAsking(null);
+    setError(null);
+    start(async () => {
+      try {
+        await deleteArticleAction(row.id);
+        setOpenId(null);
+        router.refresh();
+      } catch (reason) {
+        setError(reason instanceof Error ? reason.message : "That article could not be deleted.");
+      }
+    });
+  }
 
   const ids = useMemo(() => rows.map((row) => row.id), [rows]);
   const count = selected.size;
@@ -84,7 +114,8 @@ export function ArticleTable({ rows, sort }: { rows: ArticleRow[]; sort: string 
           reading "0 selected" beside a disabled button, is a permanent reminder
           of a mode you are not in. */}
       {count > 0 && (
-        <div className="flex flex-wrap items-center gap-3 rounded-xl bg-surface px-4 py-2.5">
+        /* Desk only: a phone has no selection, it swipes a card to delete it. */
+        <div className="hidden flex-wrap items-center gap-3 rounded-xl bg-surface px-4 py-2.5 sm:flex">
           <p className="text-sm font-medium text-ink">
             {count} selected
           </p>
@@ -132,8 +163,9 @@ export function ArticleTable({ rows, sort }: { rows: ArticleRow[]; sort: string 
           <LibraryItem
             key={row.id}
             {...row}
-            selected={selected.has(row.id)}
-            onSelectedChange={(next) => toggle(row.id, next)}
+            open={openId === row.id}
+            onOpenChange={(next) => setOpenId(next ? row.id : null)}
+            onDelete={() => setAsking(row)}
           />
         ))}
       </ul>
@@ -184,6 +216,19 @@ export function ArticleTable({ rows, sort }: { rows: ArticleRow[]; sort: string 
         open={confirming}
         onCancel={() => setConfirming(false)}
         onConfirm={remove}
+      />
+
+      {/* The phone's one-article delete, from a swiped card. */}
+      <ConfirmDialog
+        title="Delete this article?"
+        description={
+          asking
+            ? `“${asking.title}” will be deleted permanently. Anything already published to the Hub stays there.`
+            : "Permanent. Anything already published to the Hub stays there."
+        }
+        open={Boolean(asking)}
+        onCancel={() => setAsking(null)}
+        onConfirm={() => asking && removeOne(asking)}
       />
     </div>
   );
