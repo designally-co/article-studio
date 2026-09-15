@@ -141,7 +141,9 @@ jobs:
           retention-days: 7
 
   publish:
-    name: Publish sha-${{ github.sha }}
+    # A fixed name: on a pull request this job is skipped, and GitHub then
+    # lists an expression in the name unevaluated.
+    name: Publish to GHCR
     needs: image
     if: startsWith(github.ref, 'refs/tags/release-') || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
     runs-on: ubuntu-24.04
