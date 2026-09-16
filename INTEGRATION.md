@@ -17,8 +17,8 @@ Two repositories are involved:
 
 | | Repo | Role |
 |---|---|---|
-| Content Studio | `digigang/content-studio` | Generates articles. Writes to the Hub. |
-| Knowledge Hub | `digigang/designally-knowledge-hub` | Payload CMS + public site. Receives articles. |
+| Article Studio | `designally-co/article-studio` | Generates articles. Writes to the Hub. |
+| Knowledge Hub | `designally-co/designally-knowledge-hub` | Payload CMS + public site. Receives articles. |
 
 Data flows **one way**: Studio → Hub. The Hub never calls the Studio.
 
@@ -374,13 +374,15 @@ npm run db:generate            # drizzle-kit generate, after editing src/db/sche
 npm run db:migrate             # apply against DATABASE_URL
 ```
 
-Production deploys apply migrations from the **`vercel-build`** script (`next build && scripts/migrate-deploy.ts`), which is what Vercel runs in preference to `build`. It is deliberately not in `build` itself — the Dockerfile runs that one, and a container image build should not touch a database. It refuses to run outside `VERCEL_ENV=production` unless `DB_MIGRATE_ON_BUILD=1` forces it, because preview builds come from unmerged branches and commonly share the production `DATABASE_URL`; and it fails the build rather than warning, because a deploy that could not migrate is a deploy whose code expects columns that do not exist.
+**Production migrations are an explicit step, run by hand with the release's own image** — see `docs/deploy-nas.md` §5. Nothing migrates on deploy any more. Until the NAS cutover on 15 September 2026 a `vercel-build` script applied them on every production deploy from `main`; it and `scripts/migrate-deploy.ts` were removed once the NAS owned the schema, so that no deploy anywhere — including the Vercel project kept as an internal clone — can change a database.
 
 That step exists because this failed once in exactly that way: a release added five columns to `image_references`, nothing applied the migration, and every `/pipeline/[id]` answered 500 with `column "origin" does not exist` while `/api/health` reported the database healthy. `GET /api/health` now also reports `schema` — applied migrations against the number the build ships, the names of any that are missing, and `SKIP_DB_MIGRATE` — and returns 503 while the database is behind.
 
 On boot, `getDb()` runs the migrator and seeder automatically **unless `SKIP_DB_MIGRATE=1`**. In a serverless deployment you want it set: every cold start otherwise runs the full migrator (its first statement is `CREATE SCHEMA`), which is pure overhead once the schema is current and multiplies connections during bursts. Apply migrations from a trusted place instead. Migration/seed failures are caught and logged rather than thrown, so a hiccup cannot 500 every request.
 
-**Vercel** — push to `main`. Region `sin1`. Set every variable from §9. Only `main` deploys: `git.deploymentEnabled` in `vercel.json` turns off preview deployments for every other branch. They had failed on every pull request since Google became the only sign-in, because the Preview environment has no `AUTH_GOOGLE_*` — and a preview holding production's variables would share its database. The `Release` GitHub Actions workflow builds every pull request instead.
+**Production is the NAS**, since 15 September 2026: a container from `ghcr.io/designally-co/article-studio`, run by Portainer behind Caddy, released by tagging a commit on `main`. See `docs/deploy-nas.md`. A push to `main` no longer changes the live site on its own.
+
+**Vercel** — the project is kept: first as the rollback, then as an internal clone of the app to try things on. Region `sin1`. Only `main` deploys: `git.deploymentEnabled` in `vercel.json` turns off preview deployments for every other branch. They had failed on every pull request since Google became the only sign-in, because the Preview environment has no `AUTH_GOOGLE_*` — and a preview holding production's variables would share its database. The `Release` GitHub Actions workflow builds every pull request instead.
 
 **The autopilot's scheduler.** Nothing in Vercel drives it usefully: Hobby cron fires roughly once a day and one article takes five to seven steps, so a run would take most of a week. The Cloudflare Worker in `workers/autopilot-poker` pokes the endpoint every five minutes instead — it carries no schedule of its own, only the interval at which the app is asked whether anything is due. It needs two **Worker secrets**: `AUTOPILOT_URL` (`https://<your-app>/api/cron/autopilot`) and `AUTOPILOT_SECRET` (the same value as `CRON_SECRET`). `vercel.json` keeps a daily cron as a backstop.
 

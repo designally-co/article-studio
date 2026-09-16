@@ -27,7 +27,11 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
-  IMAGE: ghcr.io/designally-co/content-studio
+  # Named after the repository, which was renamed from content-studio. A GHCR
+  # package does not follow a rename, so images published before 16 September
+  # 2026 stay under ghcr.io/designally-co/content-studio — including the one
+  # production is running, which is why that package is kept for rollback.
+  IMAGE: ghcr.io/designally-co/article-studio
   # The commit the image is built from: the branch head on a pull request (not
   # GitHub's merge commit), the tagged or dispatched commit otherwise.
   COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -71,7 +75,7 @@ jobs:
           --health-timeout 5s
           --health-retries 12
     env:
-      LOCAL_TAG: content-studio:ci
+      LOCAL_TAG: article-studio:ci
       CI_DATABASE_URL: postgres://postgres:ci-throwaway@127.0.0.1:5432/postgres
     steps:
       - uses: actions/checkout@v4
@@ -176,7 +180,7 @@ jobs:
       - name: Push the tested image
         run: |
           gunzip -c image.tar.gz | docker load
-          docker tag content-studio:ci "$IMAGE:sha-$COMMIT"
+          docker tag article-studio:ci "$IMAGE:sha-$COMMIT"
           docker push "$IMAGE:sha-$COMMIT"
           digest="$(docker image inspect --format '{{index .RepoDigests 0}}' "$IMAGE:sha-$COMMIT")"
           {

@@ -119,16 +119,10 @@ used for usage logging.
    R2_PUBLIC_URL=https://images.example.com
    ```
 
-3. **Apply the schema.** On Vercel this happens for you: the `vercel-build`
-   script runs `next build` and then applies migrations, so a production deploy
-   always brings the database with it. **Production only** — preview builds skip
-   it, because a preview is built from an unmerged branch and usually points at
-   the same database. `DATABASE_URL` must be exposed to the Production
-   environment at *build* time, or the build fails rather than deploying code
-   that expects columns the database does not have.
-
-   Anywhere else — Docker, a plain Node server, a manual fix — apply them
-   yourself:
+3. **Apply the schema.** Nothing does it for you: no deploy anywhere migrates a
+   database. A release on the NAS is migrated as its own approved step, with
+   the release's image (`docs/deploy-nas.md` §5). Everywhere else — Docker, a
+   plain Node server, a manual fix — apply them yourself:
 
    - run `npm run db:migrate` against `DATABASE_URL`, or
    - paste the files in `drizzle/` into the Supabase SQL editor and run them.

@@ -30,7 +30,11 @@ file, the compose file, a pull request, a ticket or a chat.
 
 ## 2. The image
 
-`ghcr.io/designally-co/content-studio:sha-<full 40-character commit>`, linux/amd64.
+`ghcr.io/designally-co/article-studio:sha-<full 40-character commit>`, linux/amd64.
+Images published before the repository was renamed, on 16 September 2026, are
+under `ghcr.io/designally-co/content-studio` — including the one production is
+running. That package is kept, so a rollback to it needs the image name changed
+as well as the tag.
 Built by [`.github/workflows/release.yml`](../.github/workflows/release.yml).
 
 **On every pull request** the workflow runs lint, the type check and the
@@ -149,7 +153,7 @@ The container never migrates on start (`SKIP_DB_MIGRATE=1`). Migrations are a
 one-off command, run with the release's own image:
 
 ```bash
-docker run --rm --env DATABASE_URL ghcr.io/designally-co/content-studio:sha-<full commit> node --experimental-strip-types scripts/migrate.ts
+docker run --rm --env DATABASE_URL ghcr.io/designally-co/article-studio:sha-<full commit> node --experimental-strip-types scripts/migrate.ts
 ```
 
 `--env DATABASE_URL`, with no `=`, passes the value from the environment it is
@@ -164,10 +168,11 @@ history.
 After it, `schema.applied` must equal `schema.expected`. This pull request adds
 no migrations; production has 28.
 
-**One owner at a time.** Until cutover, Vercel's `vercel-build` still applies
-migrations on every production deploy from `main`. At cutover, disconnect the
-Vercel project's Git deployments (§8, step 7) before anything else merges.
-Otherwise a merge would migrate production from Vercel and from the NAS.
+**One owner, and only one.** Vercel used to apply migrations on every
+production deploy, through a `vercel-build` script. That script and
+`scripts/migrate-deploy.ts` are gone: the NAS owns the schema now, and a Vercel
+deploy — including the internal clone this project becomes (§9a) — can no
+longer change any database.
 
 ---
 
@@ -266,6 +271,34 @@ same R2 bucket.
 
 ---
 
+## 9a. Vercel afterwards: the internal clone
+
+Vercel is kept, not deleted, and it has two jobs that must not overlap in time.
+
+**Until Ake signs off it is the rollback.** That means leaving it as it is now:
+the production database, cron off, Git disconnected. Rollback is then one DNS
+change away.
+
+**After sign-off it becomes a clone** — a running copy to try things on:
+
+| | Clone |
+|---|---|
+| Address | the `*.vercel.app` one only; `article-studio.designally.co` stays on the NAS |
+| Database | **its own**, never production |
+| Cron | **off.** Two schedulers on one database is a stop condition |
+| Deploys | from `main`, which is what makes it a clone worth having |
+| Images | its own R2 bucket, or accept test images in the real one |
+| Hub | its own key, or expect test drafts in the Hub |
+| Access | Vercel's deployment protection on |
+
+Migrations are no longer a risk there: the `vercel-build` script is gone, so a
+Vercel deploy cannot change any schema (§5).
+
+**Do not convert it before sign-off**, because the day it points at a clone
+database it stops being a rollback.
+
+---
+
 ## 10. Acceptance
 
 The runbook's smoke suite:
@@ -290,15 +323,17 @@ runbook's "Evidence packet per release".
 - [ ] **Supabase.** Keep the current project for this release, as a
       runtime-only move? Or transfer it? Who owns it, and in which organisation
       and region?
-- [ ] **GHCR.** Package visibility for `content-studio`. If it is private, the
-      Portainer registry credential (`read:packages`).
+- [ ] **GHCR.** Package visibility for `article-studio`, the package the next
+      release publishes to. The registry login Portainer already uses covers
+      the organisation; confirm with the first pull under the new name.
 - [ ] **Portainer access.** A non-admin account for Buk, limited to this stack.
 - [ ] **Secret entry.** Who copies the §4 values from Vercel into Portainer,
       and how, without them passing through chat or tickets.
 - [ ] **Worker.** Confirm `AUTOPILOT_URL` is the public hostname, not a
       `*.vercel.app` address.
-- [ ] **Vercel.** When cron and Git deployments are switched off relative to
-      the DNS change. How long the project is kept for rollback.
+- [ ] **Vercel.** How long the project stays as the rollback, and when it
+      becomes the internal clone instead (§9a) — including which database the
+      clone points at.
 - [ ] **Resources.** A memory limit for the container on the 4 GB host.
 - [ ] **Order with the Hub.** Article Studio publishes to
       `hub.designally.co`. If the Hub moves too, which goes first.
