@@ -20,7 +20,18 @@ const nextConfig: NextConfig = {
    * just the package.json beside it — that is the shape the old failure took.
    */
   serverExternalPackages: ["@electric-sql/pglite", "sharp"],
-  output: "standalone",
+  /*
+   * The self-contained server the container image runs — but NEVER ON VERCEL,
+   * which does its own tracing and packaging.
+   *
+   * It has tolerated the setting so far. The Survey app, one Next minor ahead,
+   * did not: its first deploy after the same line landed died with
+   * `ENOENT .next/next-server.js.nft.json` at onBuildComplete. Vercel is kept
+   * here as the rollback and then as an internal clone, and it never runs the
+   * image, so there is nothing to gain by asking it for this output and a
+   * broken deploy to lose.
+   */
+  output: process.env.VERCEL ? undefined : "standalone",
   /*
    * SHIP LIBVIPS, WHICH NOTHING ELSE WILL.
    *
