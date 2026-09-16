@@ -1,11 +1,10 @@
 {
-  "name": "content-studio",
+  "name": "article-studio",
   "version": "0.1.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "vercel-build": "next build && node --experimental-strip-types scripts/migrate-deploy.ts",
     "start": "next start",
     "lint": "eslint",
     "db:generate": "drizzle-kit generate",

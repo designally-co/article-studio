@@ -2,9 +2,10 @@
  * Standalone migration runner for a Postgres/Supabase DATABASE_URL.
  * Usage: DATABASE_URL=postgres://… npm run db:migrate
  *
- * This is the manual runner: a server without the Vercel build step, a fix
- * applied by hand, a CI job. Production deploys use `scripts/migrate-deploy.ts`
- * instead, via the `vercel-build` script.
+ * THE ONLY RUNNER. It ships inside the container image, and a release is
+ * migrated by running it there as a deliberate step — see docs/deploy-nas.md
+ * §5. Nothing migrates on deploy: the `vercel-build` script that once did was
+ * removed when the NAS took over the schema.
  *
  * The app can also migrate on boot (src/db/index.ts), but deployed environments
  * set SKIP_DB_MIGRATE=1 and therefore do not. Do not count on it.

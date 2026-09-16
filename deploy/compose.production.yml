@@ -7,9 +7,15 @@
 #
 # IMAGE_TAG is `sha-<full 40-character commit>`, copied from the release
 # workflow's run summary. There is no default and never `latest`.
+#
+# THE IMAGE NAME CHANGED WITH THE REPOSITORY, on 16 September 2026. Anything
+# published before then is under `ghcr.io/designally-co/content-studio`,
+# including the image production is running today, and that package is kept so
+# a rollback to it stays possible. To roll back that far, change this line as
+# well as IMAGE_TAG.
 services:
   app:
-    image: ghcr.io/designally-co/content-studio:${IMAGE_TAG:?set IMAGE_TAG to sha-<full commit>}
+    image: ghcr.io/designally-co/article-studio:${IMAGE_TAG:?set IMAGE_TAG to sha-<full commit>}
     container_name: article-studio
     restart: unless-stopped
     environment:
