@@ -13,6 +13,7 @@ import {
   stepRun,
 } from "@/lib/autopilot/runner";
 import { TIME_ZONES, type RoutineScheduleKind } from "@/lib/autopilot/schedule";
+import { ROUTINE_IMAGE_RATIOS } from "@/lib/autopilot/views";
 
 /* NOTHING IS RE-EXPORTED FROM THIS FILE. Every export of a "use server" module
    is turned into a callable server reference, type-only exports included, and
@@ -44,12 +45,17 @@ function readForm(formData: FormData) {
   const kind = SCHEDULE_KINDS.has(kindRaw) ? kindRaw : ("manual" as RoutineScheduleKind);
   const zone = String(formData.get("timeZone") ?? "");
   const runAt = String(formData.get("runAt") ?? "09:00").trim();
+  const ratio = String(formData.get("imageAspectRatio") ?? "").trim();
 
   return {
     name: String(formData.get("name") ?? "").trim().slice(0, 80) || "Routine",
     description: String(formData.get("description") ?? "").trim().slice(0, 200) || null,
     categoryId: String(formData.get("categoryId") ?? "").trim() || null,
     hubStatus: String(formData.get("hubStatus") ?? "") === "published" ? "published" as const : "draft" as const,
+    /* Empty, and anything this form does not offer, means rotate. A ratio no
+       provider accepts would otherwise reach the runner and fail the image
+       step three times over a value that was never real. */
+    imageAspectRatio: ROUTINE_IMAGE_RATIOS.some((option) => option.value === ratio) ? ratio : null,
     scheduleKind: kind,
     // Anything that is not HH:MM becomes 09:00 rather than a stored value the
     // scheduler would have to guess about later.

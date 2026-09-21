@@ -1,0 +1,12 @@
+-- What shape a routine's cover image is generated at.
+--
+-- NULL is not "unset" here -- it is the rotation, the same way a NULL
+-- category_id means "rotate through every active direction". A routine that
+-- always asks for 16:9 publishes a wall of identical letterboxes, which is
+-- what every article on the Hub looked like before this column existed: the
+-- ratio was hard-coded in the runner and nobody could change it.
+--
+-- Existing rows get NULL, so they start rotating. That is a deliberate change
+-- of behaviour rather than a silent default: the old fixed 16:9 is still one
+-- of the choices, and picking it restores exactly what they did before.
+ALTER TABLE "routines" ADD COLUMN IF NOT EXISTS "image_aspect_ratio" text;

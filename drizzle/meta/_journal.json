@@ -204,6 +204,13 @@
       "when": 1789581600000,
       "tag": "0028_lock_down_data_api",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1790000000000,
+      "tag": "0029_routine_image_ratio",
+      "breakpoints": true
     }
   ]
 }
