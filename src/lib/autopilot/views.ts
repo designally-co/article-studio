@@ -19,6 +19,8 @@ export type RoutineView = {
   directionName: string | null;
   hubStatus: RoutineHubStatus;
   imagesPerRun: number;
+  /** Null means the cover rotates through `RATIO_ROTATION`. */
+  imageAspectRatio: string | null;
   scheduleKind: RoutineScheduleKind;
   runAt: string;
   timeZone: string;
@@ -27,6 +29,51 @@ export type RoutineView = {
   nextRunAt: string | null;
   lastRunAt: string | null;
 };
+
+/**
+ * The shapes a routine may generate its cover at.
+ *
+ * Every one of these is a ratio every configured image provider accepts (see
+ * `IMAGE_ASPECT_RATIOS` in `src/lib/image/providers.ts`, which is the server's
+ * list and the one that is actually enforced). This copy exists because the
+ * form that offers them is a client component and that module is server-only.
+ *
+ * Named, not just numbered. "4:5" is a fact about a rectangle; "Portrait" is
+ * what the person choosing it is actually deciding.
+ */
+export const ROUTINE_IMAGE_RATIOS: { value: string; label: string }[] = [
+  { value: "16:9", label: "Wide (16:9)" },
+  { value: "3:2", label: "Landscape (3:2)" },
+  { value: "1:1", label: "Square (1:1)" },
+  { value: "4:5", label: "Portrait (4:5)" },
+  { value: "2:3", label: "Tall (2:3)" },
+  { value: "9:16", label: "Story (9:16)" },
+];
+
+/**
+ * What a routine rotates through when no ratio is pinned.
+ *
+ * FOUR OF THE SIX, AND THE TWO LEFT OUT ARE LEFT OUT ON PURPOSE. 9:16 and 2:3
+ * are phone-screen shapes: as the lead image of an article they push the first
+ * paragraph off the bottom of the window. They stay available as a deliberate
+ * choice and stay out of the shape a schedule reaches for by itself.
+ *
+ * The order is the rotation order, and it alternates rather than drifting —
+ * wide, classic, portrait, square — so two runs in a row never look alike.
+ */
+const RATIO_ROTATION = ["16:9", "3:2", "4:5", "1:1"] as const;
+
+/**
+ * The ratio one run generates at: the pinned one, or the next in rotation.
+ *
+ * `index` is how many articles this routine has already produced, so the shape
+ * advances with the schedule rather than with the clock.
+ */
+export function rotateAspectRatio(pinned: string | null, index: number): string {
+  if (pinned && ROUTINE_IMAGE_RATIOS.some((ratio) => ratio.value === pinned)) return pinned;
+  const safe = Math.abs(Math.floor(index)) % RATIO_ROTATION.length;
+  return RATIO_ROTATION[safe];
+}
 
 export type RunView = {
   id: string;

@@ -12,7 +12,7 @@ import {
   ordinal,
   type RoutineScheduleKind,
 } from "@/lib/autopilot/schedule";
-import type { RoutineView } from "@/lib/autopilot/views";
+import { ROUTINE_IMAGE_RATIOS, type RoutineView } from "@/lib/autopilot/views";
 import { PAGE_CLOSE_BUTTON } from "@/components/page-bar";
 /* Title and Close still come from Radix: they read the Dialog context the
    shell provides, so they work anywhere inside it. */
@@ -359,7 +359,7 @@ export function RoutineForm({
                     Advanced settings
                   </span>
                   <span className="mt-0.5 block text-sm leading-relaxed text-(--sheet-ink-2)">
-                    Content direction and time zone.
+                    Content direction, image shape and time zone.
                   </span>
                 </span>
                 <ChevronDown
@@ -384,6 +384,29 @@ export function RoutineForm({
                         {directions.map((direction) => (
                           <option key={direction.id} value={direction.id}>
                             {direction.name}
+                          </option>
+                        ))}
+                      </select>
+                    </SelectShell>
+                  </Field>
+
+                  {/* SAME SHAPE AS THE DIRECTION ABOVE IT, and for the same
+                      reason. A routine that always asks for one ratio fills
+                      the Hub with the same rectangle over and over, which is
+                      what the hard-coded 16:9 did to every article it ever
+                      published. Rotation is first here too. */}
+                  <Field label="Image shape" htmlFor="imageAspectRatio">
+                    <SelectShell>
+                      <select
+                        id="imageAspectRatio"
+                        name="imageAspectRatio"
+                        defaultValue={routine?.imageAspectRatio ?? ""}
+                        className={SELECT}
+                      >
+                        <option value="">Rotate through several shapes</option>
+                        {ROUTINE_IMAGE_RATIOS.map((ratio) => (
+                          <option key={ratio.value} value={ratio.value}>
+                            {ratio.label}
                           </option>
                         ))}
                       </select>

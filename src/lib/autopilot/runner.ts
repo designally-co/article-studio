@@ -10,6 +10,8 @@ import type {
   RoutineStep,
 } from "@/db/schema";
 import { nextRunAt } from "@/lib/autopilot/schedule";
+import { rotateAspectRatio } from "@/lib/autopilot/views";
+import { IMAGE_ASPECT_RATIOS, type ImageAspectRatio } from "@/lib/image/providers";
 import { generateTopicIdeas } from "@/lib/pipeline/topics";
 import { preparePlanCore } from "@/lib/pipeline/plan";
 import { generateDraftCore } from "@/lib/pipeline/draft";
@@ -208,6 +210,25 @@ async function articlesToday(routineId: string): Promise<number> {
 }
 
 /**
+ * Every article this routine has EVER opened.
+ *
+ * All time, not today, because that is what the cover-shape rotation needs.
+ * `articlesToday` resets at midnight, so a once-a-day routine asked it the
+ * same question every morning and always got 0 — an index that never moves is
+ * not a rotation. Counted at the moment the run starts and written onto the
+ * article, so a retried image step reuses the shape rather than picking a new
+ * one.
+ */
+async function articlesEver(routineId: string): Promise<number> {
+  const db = await getDb();
+  const [row] = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(routineRuns)
+    .where(and(eq(routineRuns.routineId, routineId), isNotNull(routineRuns.projectId)));
+  return row?.n ?? 0;
+}
+
+/**
  * Starts that failed before an article existed, today.
  *
  * `status = 'failed'` as well as the missing project, and both halves earn
@@ -337,6 +358,13 @@ async function startRun(routine: Routine, trigger: RoutineRunTrigger = "schedule
     editorialFormat: "explainer",
     editorialReader: "Designers and creative teams",
     editorialEntryCount: 10,
+    /* DECIDED HERE, NOT AT THE IMAGE STEP, and written down with the article.
+       The image step runs three pokes later and can be retried twice more; a
+       rotation computed there would move under a run that merely failed to
+       reach a provider, and the same article would come back a different
+       shape each attempt. One decision, recorded, is also the one an editor
+       opening the pipeline can see. */
+    imageAspectRatio: rotateAspectRatio(routine.imageAspectRatio, await articlesEver(routine.id)),
   };
   const [project] = await db
     .insert(projects)
@@ -453,6 +481,28 @@ async function runReferenceStep(projectId: string, count: number) {
   });
 }
 
+/**
+ * The shape to generate at, narrowed to one this model will actually accept.
+ *
+ * `generateImagesCore` REJECTS a ratio outside the model's capabilities rather
+ * than nudging it, and that rejection would land three pokes into a finished
+ * article. Every provider configured today offers all six, so this only bites
+ * when a new one does not — and then the run should publish a picture of a
+ * slightly different shape, not no picture at all.
+ *
+ * 16:9 is the fallback because it is what every routine generated before the
+ * shape was a setting.
+ */
+function supportedRatio(
+  wanted: string | undefined,
+  allowed: readonly ImageAspectRatio[]
+): ImageAspectRatio {
+  const named = IMAGE_ASPECT_RATIOS.find((ratio) => ratio === wanted);
+  if (named && allowed.includes(named)) return named;
+  if (allowed.includes("16:9")) return "16:9";
+  return allowed[0] ?? "1:1";
+}
+
 /** Step three: make the picture, and say which one is the cover. */
 async function runImageStep(projectId: string, count: number) {
   const options = await imageGenerationOptions();
@@ -461,7 +511,7 @@ async function runImageStep(projectId: string, count: number) {
     // the whole run over a missing Fal key would be the wrong trade.
     return;
   }
-  const { work } = await readImageWork(projectId);
+  const { inputs, work } = await readImageWork(projectId);
   if (!work?.prompt) throw new Error("No image prompt was written for this article.");
   const option = options.find((o) => o.optionId === work.optionId) ?? options[0];
   const useReference = Boolean(work.referenceId) && option.capabilities.referenceImages;
@@ -469,7 +519,7 @@ async function runImageStep(projectId: string, count: number) {
   const run = await generateImagesCore(projectId, {
     prompt: work.prompt,
     optionId: option.optionId,
-    aspectRatio: "16:9",
+    aspectRatio: supportedRatio(inputs.imageAspectRatio, option.capabilities.aspectRatios),
     variationCount: Math.max(1, Math.min(count, option.capabilities.maxVariations)),
     referenceIds: useReference && work.referenceId ? [work.referenceId] : [],
     variantPrompts: work.variantPrompts,

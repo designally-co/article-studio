@@ -316,6 +316,15 @@ export const routines = pgTable("routines", {
   hubStatus: text("hub_status").$type<RoutineHubStatus>().notNull().default("draft"),
   imagesPerRun: integer("images_per_run").notNull().default(1),
   /**
+   * The shape of the cover, or null to rotate through several.
+   *
+   * Null is the rotation, exactly as it is for `categoryId` — a schedule left
+   * to itself on one ratio publishes the same letterbox every time, and a page
+   * of those reads as one picture repeated. See `ROUTINE_IMAGE_RATIOS` in
+   * `src/lib/autopilot/views.ts` for the choices and the rotation order.
+   */
+  imageAspectRatio: text("image_aspect_ratio"),
+  /**
    * NO LONGER READ. It was a ceiling on articles per day, and it said no to
    * routines their owner had just asked to run — a schedule is an instruction,
    * not a request. What it was really guarding against is now `isWriting` in

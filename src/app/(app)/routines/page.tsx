@@ -42,6 +42,7 @@ export default async function RoutinesPage() {
     directionName: row.categoryId ? (directionName.get(row.categoryId) ?? null) : null,
     hubStatus: row.hubStatus,
     imagesPerRun: row.imagesPerRun,
+    imageAspectRatio: row.imageAspectRatio,
     scheduleKind: row.scheduleKind,
     runAt: row.runAt,
     timeZone: row.timeZone,
