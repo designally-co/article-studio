@@ -4,7 +4,7 @@ import { getDb } from "@/db";
 import { imageReferences, images, projects, type CoverCredit } from "@/db/schema";
 import { loadStoredImage, saveGeneratedImage, saveImage } from "@/lib/image/storage";
 import { imageSize } from "@/lib/image/dimensions";
-import { USER_AGENT } from "@/lib/image/reference-sources";
+import { downloadImage, USER_AGENT } from "@/lib/image/reference-sources";
 import type { GeneratedImageView } from "./views";
 
 /**
@@ -65,33 +65,54 @@ export function draftCreditLabel(reference: {
 /**
  * Unsplash asks that a photograph's download endpoint be called when it is
  * actually used — that is how its photographers see their work being used.
+ *
+ * The same call answers with the address of the ORIGINAL file, which is the
+ * one worth having: the reference was fetched at Unsplash's ~1080px web size,
+ * enough to guide a generation and small for a cover. So this returns that
+ * address at the delivery width, or null.
+ *
  * Best effort: a failed ping must not cost the editor their cover.
  */
-async function pingUnsplashDownload(sourceUrl: string | null): Promise<void> {
+async function pingUnsplashDownload(sourceUrl: string | null): Promise<string | null> {
   const key = process.env.UNSPLASH_ACCESS_KEY;
-  if (!key || !sourceUrl) return;
+  if (!key || !sourceUrl) return null;
   let id: string | undefined;
   try {
     const url = new URL(sourceUrl);
-    if (url.hostname !== "unsplash.com") return;
+    if (url.hostname !== "unsplash.com") return null;
     // `/photos/{slug}-{id}` or `/photos/{id}`; an id is eleven characters and
     // may itself contain a hyphen, so it is read from the end.
     const segment = url.pathname.split("/").filter(Boolean)[1];
     id = segment ? segment.slice(-11) : undefined;
   } catch {
-    return;
+    return null;
   }
-  if (!id || !/^[A-Za-z0-9_-]{11}$/.test(id)) return;
+  if (!id || !/^[A-Za-z0-9_-]{11}$/.test(id)) return null;
   try {
-    await fetch(`https://api.unsplash.com/photos/${id}/download`, {
+    const response = await fetch(`https://api.unsplash.com/photos/${id}/download`, {
       headers: { authorization: `Client-ID ${key}`, "accept-version": "v1", "user-agent": USER_AGENT },
       signal: AbortSignal.timeout(4_000),
       cache: "no-store",
     });
+    if (!response.ok) return null;
+    const payload = (await response.json()) as { url?: unknown };
+    if (typeof payload?.url !== "string") return null;
+    // Unsplash serves through imgix, which sizes on request: the delivery
+    // width as a JPEG, rather than a 6000px original read only to be shrunk.
+    const original = new URL(payload.url);
+    if (original.hostname !== "images.unsplash.com") return null;
+    original.searchParams.set("w", String(COVER_FETCH_WIDTH));
+    original.searchParams.set("fm", "jpg");
+    original.searchParams.set("q", "85");
+    return original.toString();
   } catch {
     // Recorded nowhere: the cover stands either way.
+    return null;
   }
 }
+
+/** Matches the width a generated cover is delivered at (see `saveGeneratedImage`). */
+const COVER_FETCH_WIDTH = 1600;
 
 function ratioOf(width: number, height: number): string {
   const gcd = (a: number, b: number): number => (b === 0 ? a : gcd(b, a % b));
@@ -118,7 +139,16 @@ export async function coverFromReferenceCore(
     throw new Error("Confirm you have permission to use this image before making it the cover.");
   }
 
-  const stored = await loadStoredImage(reference.storagePath);
+  /* The full-size photograph where the library offers one — Unsplash, whose
+     reference copy is its web size — and the reference's own bytes otherwise,
+     or if that fetch fails. Pinging is part of the same call, and Unsplash's
+     terms ask for it whenever a photograph is used. */
+  const original =
+    reference.origin === "open_license" ? await pingUnsplashDownload(reference.sourceUrl) : null;
+  const fullSize = original ? await downloadImage(original) : null;
+  const stored = fullSize
+    ? { data: fullSize.data, mimeType: fullSize.mimeType }
+    : await loadStoredImage(reference.storagePath);
   if (!stored) throw new Error("That photograph could not be read. Find it again, or upload it.");
 
   /* Stored the way a generated cover is — WebP, at most the delivery width —
@@ -138,8 +168,6 @@ export async function coverFromReferenceCore(
     const size = imageSize(stored.data);
     saved = { storagePath, width: size?.width ?? reference.width, height: size?.height ?? reference.height };
   }
-
-  if (reference.origin === "open_license") await pingUnsplashDownload(reference.sourceUrl);
 
   const [row] = await db
     .insert(images)

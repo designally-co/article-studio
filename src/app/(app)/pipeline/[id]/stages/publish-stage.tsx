@@ -1072,14 +1072,21 @@ function ImagePanel({
             */}
             <fieldset className="border-0 p-0">
               <legend className="sr-only">Which photograph the image should match</legend>
-              <ul className="flex flex-wrap items-center gap-2">
+              {/* ONE ROW ON A PHONE, scrolled sideways. The stage there is a
+                  box the height of the screen, and every row of thumbnails is
+                  64px taken from the cover above it — eight references wrapped
+                  to two rows and shrank the picture being judged. The padding
+                  keeps each thumbnail's remove button inside the scroller,
+                  which would otherwise clip it. A desktop has the height, and
+                  wraps. */}
+              <ul className="flex items-center gap-2 overflow-x-auto pe-1.5 pt-1.5 [scrollbar-width:none] lg:flex-wrap lg:overflow-visible lg:pe-0 lg:pt-0 [&::-webkit-scrollbar]:hidden">
                 {references.map((item) => {
                   const chosen = item.id === chosenReference?.id;
                   const credit = item.sourceName
                     ? `${item.sourceName}${item.license ? ` — ${item.license}` : ""}`
                     : "Uploaded";
                   return (
-                    <li key={item.id} className="group relative">
+                    <li key={item.id} className="group relative shrink-0">
                       <label className="block cursor-pointer">
                         <input
                           type="radio"

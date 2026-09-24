@@ -141,41 +141,45 @@ export async function findReferenceImagesCore(
   ]);
   const candidates = [...fromSources, ...search.candidates].slice(0, room);
 
-  const saved: UploadedReferenceView[] = [];
-  for (const candidate of candidates) {
-    // Normalised the same way an upload is, and for the same reason: the
-    // providers get one predictable, metadata-free format. If sharp cannot
-    // load, the original bytes are still a valid image.
-    let data = candidate.data;
-    let mimeType = candidate.mimeType;
-    let ext = candidate.ext;
-    try {
-      const sharp = await loadSharp();
-      data = await sharp(candidate.data).rotate().png().toBuffer();
-      mimeType = "image/png";
-      ext = "png";
-    } catch {
-      // sharp is unavailable on this runtime.
-    }
-    const { storagePath } = await saveImage({ data, mimeType, ext });
-    const [row] = await db
-      .insert(imageReferences)
-      .values({
-        projectId,
-        storagePath,
-        mimeType,
-        originalName: candidate.originalName,
-        width: candidate.width,
-        height: candidate.height,
-        origin: candidate.origin,
-        sourceUrl: candidate.sourceUrl,
-        sourceName: candidate.sourceName,
-        license: candidate.license,
-        attribution: candidate.attribution,
-      })
-      .returning();
-    saved.push(referenceView(row));
-  }
+  /* Side by side, in the order found. Up to eight pictures, each re-encoded
+     and uploaded, would otherwise queue behind one another inside the same
+     sixty seconds the search has already spent most of. */
+  const saved: UploadedReferenceView[] = await Promise.all(
+    candidates.map(async (candidate) => {
+      // Normalised the same way an upload is, and for the same reason: the
+      // providers get one predictable, metadata-free format. If sharp cannot
+      // load, the original bytes are still a valid image.
+      let data = candidate.data;
+      let mimeType = candidate.mimeType;
+      let ext = candidate.ext;
+      try {
+        const sharp = await loadSharp();
+        data = await sharp(candidate.data).rotate().png().toBuffer();
+        mimeType = "image/png";
+        ext = "png";
+      } catch {
+        // sharp is unavailable on this runtime.
+      }
+      const { storagePath } = await saveImage({ data, mimeType, ext });
+      const [row] = await db
+        .insert(imageReferences)
+        .values({
+          projectId,
+          storagePath,
+          mimeType,
+          originalName: candidate.originalName,
+          width: candidate.width,
+          height: candidate.height,
+          origin: candidate.origin,
+          sourceUrl: candidate.sourceUrl,
+          sourceName: candidate.sourceName,
+          license: candidate.license,
+          attribution: candidate.attribution,
+        })
+        .returning();
+      return referenceView(row);
+    }),
+  );
 
   return {
     references: [...existing.map(referenceView), ...saved],
