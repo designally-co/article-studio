@@ -159,6 +159,7 @@ export default async function PipelinePage({
             coverImageUrl={cover ? `/api/images/${cover.id}` : null}
             coverAspectRatio={coverAspectRatio}
             coverImageId={cover?.id ?? null}
+            coverCredits={loaded.project.inputs.coverCredits ?? {}}
             initialDek={loaded.project.inputs.publishDek ?? null}
             published={published}
             images={loaded.images.map((img) => ({

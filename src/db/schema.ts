@@ -138,6 +138,18 @@ export type FormatRules = {
   longForm: boolean;
 };
 
+/** See `ProjectInputs.coverCredits`. */
+export type CoverCredit = {
+  label: string;
+  url: string;
+  referenceId: string;
+  origin: ReferenceOrigin;
+  license: string | null;
+  rightsConfirmedAt?: string;
+  /** Who confirmed, by email. */
+  rightsConfirmedBy?: string;
+};
+
 export type ProjectInputs = {
   articleMode?: import("@/lib/editorial").ArticleMode;
   editorialFormat?: import("@/lib/editorial").EditorialFormat;
@@ -172,6 +184,19 @@ export type ProjectInputs = {
    * existed — so an editor who never picks keeps the old behaviour.
    */
   coverImageId?: string;
+  /**
+   * The credit owed for each cover that is a real photograph rather than a
+   * generated image, keyed by `images.id`.
+   *
+   * A sourced cover is someone else's picture, and the article says whose in
+   * its References — `label` is the line a reader sees and `url` where it
+   * points, both drafted from the source and editable. `rightsConfirmedAt` is
+   * the editor saying the press-kit terms allow it or that permission was
+   * given; an open-licence photograph needs no such word, since its licence is
+   * the permission. Held here rather than in a column because it is a handful
+   * of strings per article and only the image stage and publishing read it.
+   */
+  coverCredits?: Record<string, CoverCredit>;
   /**
    * When reference photographs were first searched for on this article, as an
    * ISO time.

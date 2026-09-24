@@ -28,6 +28,7 @@ export function ConfirmDialog({
   title,
   description,
   confirmLabel = "Delete",
+  tone = "danger",
   open,
   onCancel,
   onConfirm,
@@ -38,6 +39,11 @@ export function ConfirmDialog({
      back up at the title to find out what they are confirming; the word on the
      button should be the thing that is about to happen. */
   confirmLabel?: string;
+  /* Red for something that cannot be taken back, which is what every caller
+     asked before. "primary" for a confirmation that is not a loss — saying you
+     have permission to use a picture is a go-ahead, and a red button reads as
+     a warning against it. */
+  tone?: "danger" | "primary";
   open: boolean;
   onCancel: () => void;
   onConfirm: () => void;
@@ -94,7 +100,7 @@ export function ConfirmDialog({
             <Button type="button" variant="outline" onClick={onCancel}>
               Cancel
             </Button>
-            <Button type="button" variant="destructive" onClick={onConfirm}>
+            <Button type="button" variant={tone === "primary" ? "default" : "destructive"} onClick={onConfirm}>
               {confirmLabel}
             </Button>
           </div>

@@ -23,7 +23,7 @@ export const IMAGE_DIRECTION = {
 /**
  * The rules the prompt writer works to.
  *
- * Six lines, not six paragraphs. These reach Claude, never the image model —
+ * Lines, not paragraphs. These reach Claude, never the image model —
  * see `finishImagePrompt` for what the image model is actually sent, and why
  * the difference matters.
  */
@@ -35,6 +35,12 @@ export const IMAGE_RULES = [
   "Unstaged: things as they would actually be, the small untidiness of real use, nothing arranged for the camera.",
   "The colours the setting would really have. No neon, no gradient backdrop, no teal-and-orange grade.",
   "Nothing surreal, symbolic, floating, or impossible. If it could not exist in the room, it does not belong.",
+  /* The three below are what separates a design publication's picture from a
+     stock one — the work itself, seen closely, briefed like a shoot — and none
+     of them is a look: palette, mood and framing stay the article's own. */
+  "When the article is about a made thing — a typeface, an identity, a book, a product, a building, an interface — show the thing itself, close enough to see what it is made of: paper stock, ink, print, stitching, screen pixels, wear.",
+  "Brief it the way a photographer would: where the camera stands, how close, how long the lens, where the light comes from and at what time of day.",
+  "None of the stock and AI tells: hands hovering over a keyboard, a face lit by a glowing screen, walls of sticky notes, lightbulbs, brains, holograms, robots, floating interface panels, flawless skin, a product centred on a seamless backdrop.",
 ] as const;
 
 /** Never write more prompts than the providers will render in one go. */

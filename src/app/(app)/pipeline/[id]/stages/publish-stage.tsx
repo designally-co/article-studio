@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useEffect, useId, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowRight, ExternalLink, LoaderCircle, Maximize2, Minimize2, Send, X } from "lucide-react";
 import { Markdown } from "@/components/markdown";
@@ -13,6 +13,7 @@ import {
   StageSheet,
 } from "./stage-mobile";
 import { countMetrics } from "@/lib/text";
+import { withReference } from "@/lib/outline";
 import { markdownToPlainText } from "@/lib/plain";
 import { type PublishMetadata } from "@/lib/publish-meta";
 import {
@@ -27,7 +28,9 @@ import {
   deleteGeneratedImageAction,
   deleteImageReferenceAction,
   findReferenceImagesAction,
+  coverFromReferenceAction,
   setCoverImageAction,
+  updateCoverCreditAction,
   uploadImageReferenceAction,
 } from "../image-actions";
 import { IconDownload, IconTrash } from "@/components/icons";
@@ -35,6 +38,8 @@ import { ImageSettingsMenu, ReferenceMenu } from "./image-dock-menus";
 import { AccentOrb } from "@/components/accent-orb";
 import type { ImageAspectRatio } from "@/lib/image/providers";
 import type { GeneratedImageView, UploadedReferenceView } from "@/lib/pipeline/views";
+import type { CoverCredit } from "@/db/schema";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { MAX_FOUND_REFERENCES } from "@/lib/image/reference-policy";
 import type { BrandReviewResult } from "@/lib/brand-review";
 import { type ArticleVisualBrief, type ImagePromptVariant } from "@/lib/image/visual-brief";
@@ -115,6 +120,7 @@ export function PublishStage({
   coverImageUrl,
   coverAspectRatio,
   coverImageId,
+  coverCredits,
   initialDek,
   published,
   images,
@@ -142,6 +148,8 @@ export function PublishStage({
   coverAspectRatio: number;
   /** The image that will travel to the Hub, already resolved by the route. */
   coverImageId: string | null;
+  /** Credits owed for covers that are photographs, by image id. */
+  coverCredits: Record<string, CoverCredit>;
   /** Cached dek, if one was generated on a previous visit. */
   initialDek: string | null;
   /** Whether the article is live on the Knowledge Hub. */
@@ -178,7 +186,13 @@ export function PublishStage({
           projectId={projectId}
           title={title}
           publish={publish}
-          draftMd={draftMd}
+          /* With the cover's credit where the Hub will list it, when the cover
+             is someone's photograph — see `withReference`. */
+          draftMd={
+            coverImageId && coverCredits[coverImageId]
+              ? withReference(draftMd, coverCredits[coverImageId])
+              : draftMd
+          }
           coverImageUrl={coverImageUrl}
           coverAspectRatio={coverAspectRatio}
           initialDek={initialDek}
@@ -210,6 +224,7 @@ export function PublishStage({
           anthropicReady={anthropicReady}
           autoFindReferences={autoFindReferences}
           coverImageId={coverImageId}
+          coverCredits={coverCredits}
           tab="images"
           onNext={() => show("complete")}
         />
@@ -232,6 +247,7 @@ function ArticlePanel({
   options,
   anthropicReady,
   coverImageId,
+  coverCredits,
   autoFindReferences,
   tab,
   onNext,
@@ -250,6 +266,7 @@ function ArticlePanel({
   options: ImageModelOption[];
   anthropicReady: boolean;
   coverImageId: string | null;
+  coverCredits: Record<string, CoverCredit>;
   autoFindReferences: boolean;
   tab: "content" | "images";
   onNext: () => void;
@@ -290,6 +307,7 @@ function ArticlePanel({
         anthropicReady={anthropicReady}
         autoFindReferences={autoFindReferences}
         coverImageId={coverImageId}
+        coverCredits={coverCredits}
         onNext={onNext}
       />
         </>
@@ -387,6 +405,7 @@ function ImagePanel({
   options,
   anthropicReady,
   coverImageId,
+  coverCredits,
   autoFindReferences,
   onNext,
 }: {
@@ -400,6 +419,7 @@ function ImagePanel({
   options: ImageModelOption[];
   anthropicReady: boolean;
   coverImageId: string | null;
+  coverCredits: Record<string, CoverCredit>;
   autoFindReferences: boolean;
   onNext: () => void;
 }) {
@@ -470,6 +490,13 @@ function ImagePanel({
   // Optimistic: the route resolves the cover on reload, but the choice has to
   // register the instant it is clicked or the control feels broken.
   const [chosenCoverId, setChosenCoverId] = useState<string | null>(coverImageId);
+  /* A PHOTOGRAPH CAN BE THE COVER. The credit each one is owed, by image id,
+     and the reference waiting on the editor's word that it may be published —
+     see @/lib/pipeline/sourced-cover for why an open licence needs no such
+     word and everything else does. */
+  const [credits, setCredits] = useState<Record<string, CoverCredit>>(coverCredits);
+  const [permissionFor, setPermissionFor] = useState<UploadedReferenceView | null>(null);
+  const [coverBusy, setCoverBusy] = useState(false);
   /* How far the phone's sheet has risen. The stage does not scroll, so the
      content moves by exactly that much rather than being covered — a tuned
      constant clears a sheet holding two thumbnails and hides the dock behind
@@ -755,6 +782,36 @@ function ImagePanel({
     });
   }
 
+  /* THE PHOTOGRAPH ITSELF, AS THE COVER. Made into an image beside the
+     generated ones rather than a special case of the cover, so choosing,
+     deleting and publishing it are the paths that already exist. A second
+     press on the same photograph chooses the cover it already became. */
+  async function coverFromReference(item: UploadedReferenceView, rightsConfirmed: boolean) {
+    const already = imgs.find((image) => credits[image.id]?.referenceId === item.id);
+    if (already) {
+      chooseCover(already.id);
+      return;
+    }
+    setCoverBusy(true);
+    setError(null);
+    try {
+      const result = await coverFromReferenceAction(projectId, item.id, rightsConfirmed);
+      setImgs((current) => [result.image, ...current]);
+      setCredits((current) => ({ ...current, [result.image.id]: result.credit }));
+      setChosenCoverId(result.image.id);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not make that photograph the cover.");
+    } finally {
+      setCoverBusy(false);
+    }
+  }
+
+  function askCoverFromReference(item: UploadedReferenceView) {
+    // An open licence is the permission; anything else is someone's to give.
+    if (item.origin === "open_license" && item.license) void coverFromReference(item, false);
+    else setPermissionFor(item);
+  }
+
   const referenceMissing = Boolean(
     selectedOption?.capabilities.referenceImagesRequired && usableReferences.length === 0
   );
@@ -779,6 +836,19 @@ function ImagePanel({
       : imgs.length === 1
         ? null
         : `${imgs.length} images — choose the one to publish.`;
+  const featuredCredit = featured ? credits[featured.id] : undefined;
+  /* Only where the cover is someone's photograph: a generated image owes
+     nobody a line. Keyed by image so switching covers starts from that one's
+     own words rather than the last one's. */
+  const creditEditor = featured && featuredCredit && (
+    <CoverCreditEditor
+      key={featured.id}
+      projectId={projectId}
+      imageId={featured.id}
+      credit={featuredCredit}
+      onSaved={(next) => setCredits((current) => ({ ...current, [featured.id]: next }))}
+    />
+  );
 
   /* ONE DEFINITION, TWO HOMES — the rail panel on a desktop, the body of a
      pull-up sheet on a phone. Written twice they would drift apart on the
@@ -789,6 +859,7 @@ function ImagePanel({
         <li key={img.id}>
           <GeneratedImage
             img={img}
+            sourced={Boolean(credits[img.id])}
             selected={img.id === featured?.id}
             onSelect={() => chooseCover(img.id)}
             onDeleted={() => setImgs((current) => current.filter((item) => item.id !== img.id))}
@@ -887,6 +958,7 @@ function ImagePanel({
               <GeneratedImage
                 key={featured.id}
                 img={featured}
+                sourced={Boolean(featuredCredit)}
                 feature
                 maxHeight={featureRoom ?? undefined}
                 selected
@@ -1083,7 +1155,11 @@ function ImagePanel({
               )}
               {activeReference?.sourceName ? (
                 <>
-                  Photo by{" "}
+                  {/* "Photo by" is a photographer's credit. A page's lead image
+                      is the publisher's, and whether it may be published is
+                      still open — said here, before anyone presses the button
+                      after it. */}
+                  {activeReference.origin === "article_source" ? "From" : "Photo by"}{" "}
                   {activeReference.sourceUrl ? (
                     <a
                       href={activeReference.sourceUrl}
@@ -1096,10 +1172,30 @@ function ImagePanel({
                   ) : (
                     activeReference.sourceName
                   )}
-                  {activeReference.license ? ` · ${activeReference.license}` : ""}
+                  {activeReference.license
+                    ? ` · ${activeReference.license}`
+                    : activeReference.origin === "article_source"
+                      ? " · needs permission to publish"
+                      : ""}
                 </>
               ) : (
                 <>Uploaded reference.</>
+              )}
+              {/* THE PICTURE ITSELF MAY BE THE BEST COVER. When a cited page
+                  leads with the work, a generated likeness of it is the lesser
+                  image — so the photograph can go to the middle as it is. */}
+              {activeReference && (
+                <>
+                  {" · "}
+                  <button
+                    type="button"
+                    onClick={() => askCoverFromReference(activeReference)}
+                    disabled={coverBusy || busy !== null}
+                    className="font-medium text-ink underline decoration-line-strong underline-offset-2 transition-colors duration-(--duration-fast) hover:decoration-current focus-visible:outline-none focus-visible:shadow-[var(--shadow-focus)] disabled:opacity-50"
+                  >
+                    {coverBusy ? "Making it the cover…" : "Use as cover"}
+                  </button>
+                </>
               )}
             </p>
           </section>
@@ -1276,6 +1372,7 @@ function ImagePanel({
                 ? "You can publish without an image."
                 : "The selected image will be published."}
             </p>
+            {creditEditor}
             <button type="button" onClick={onNext} className="cs-cta mt-4 w-full">
               Continue to publish
             </button>
@@ -1290,10 +1387,12 @@ function ImagePanel({
 
             The set is at thumbnail size. Picking one moves it to the middle;
             nothing else about the page changes. */}
-        <section className="cs-bezel" aria-label="Generated images">
+        <section className="cs-bezel" aria-label="Images">
           <div className="cs-bezel-core p-5">
+            {/* "Images", not "Generated images": a photograph used as the
+                cover sits in this set too. */}
             <h3 className="font-heading text-[length:var(--text-h3)] font-medium tracking-tight text-ink">
-              Generated images
+              Images
             </h3>
             {imagesNote && (
               <p className="mt-1 text-sm leading-relaxed text-ink-2">{imagesNote}</p>
@@ -1307,15 +1406,130 @@ function ImagePanel({
       <StageAction label="Continue to publish" onClick={onNext}>
         <ArrowRight aria-hidden className="size-5" />
       </StageAction>
-      <StageSheet title="Generated images" subtitle={imagesNote ?? undefined} onOpenChange={setSheetLift}>
+      <StageSheet title="Images" subtitle={imagesNote ?? undefined} onOpenChange={setSheetLift}>
+        {creditEditor}
         {imageGrid}
       </StageSheet>
+
+      <ConfirmDialog
+        open={permissionFor !== null}
+        title="Use this image as the cover?"
+        confirmLabel="I have permission"
+        tone="primary"
+        description={
+          permissionFor?.origin === "upload" ? (
+            <>
+              An uploaded picture belongs to whoever made it. Use it only if you made it, or they
+              have given permission. It will be credited in the article&rsquo;s References, and you
+              can edit the wording.
+            </>
+          ) : (
+            <>
+              This picture belongs to {permissionFor?.sourceName ?? "the page it came from"}. Use it
+              only if their press terms allow editorial use, or they have given permission. It will
+              be credited in the article&rsquo;s References, and you can edit the wording.
+            </>
+          )
+        }
+        onCancel={() => setPermissionFor(null)}
+        onConfirm={() => {
+          const item = permissionFor;
+          setPermissionFor(null);
+          if (item) void coverFromReference(item, true);
+        }}
+      />
     </div>
   );
 }
 
-function GeneratedImage({ img, feature = false, maxHeight, selected, onSelect, onDeleted }: {
+/**
+ * The line a sourced cover is credited with, and where it links.
+ *
+ * Drafted from the source when the photograph became the cover, and editable
+ * because the draft is only as good as the page's metadata: a studio's site
+ * name may be "Home", and the credit a press kit asks for may be worded its
+ * own way. Saved when a field is left, so there is no button to forget.
+ */
+function CoverCreditEditor({ projectId, imageId, credit, onSaved }: {
+  projectId: string;
+  imageId: string;
+  credit: CoverCredit;
+  onSaved: (credit: CoverCredit) => void;
+}) {
+  const [label, setLabel] = useState(credit.label);
+  const [url, setUrl] = useState(credit.url);
+  const [status, setStatus] = useState<{ kind: "idle" | "saving" | "saved" } | { kind: "error"; message: string }>({
+    kind: "idle",
+  });
+
+  async function save() {
+    if (label.trim() === credit.label && url.trim() === credit.url) return;
+    setStatus({ kind: "saving" });
+    try {
+      const next = await updateCoverCreditAction(projectId, imageId, { label, url });
+      onSaved(next);
+      setStatus({ kind: "saved" });
+    } catch (e) {
+      setStatus({ kind: "error", message: e instanceof Error ? e.message : "The credit could not be saved." });
+    }
+  }
+
+  // From React, not the image id: the editor is drawn twice — in the rail and
+  // in the phone's sheet — and two fields sharing an id share one label.
+  const fieldId = useId();
+  const labelId = `${fieldId}-label`;
+  const urlId = `${fieldId}-url`;
+  return (
+    <div className="mt-4 border-t border-line pt-4">
+      <p className="text-sm font-medium text-ink">Cover credit</p>
+      <p className="mt-1 text-xs leading-relaxed text-ink-2">
+        Added to the article&rsquo;s References when it publishes.
+      </p>
+      <label htmlFor={labelId} className="mt-3 block text-xs font-medium text-ink-2">
+        Credit line
+      </label>
+      <input
+        id={labelId}
+        value={label}
+        onChange={(event) => setLabel(event.target.value)}
+        onBlur={() => void save()}
+        maxLength={240}
+        className="cs-input mt-1 !h-10 text-sm"
+      />
+      <label htmlFor={urlId} className="mt-3 block text-xs font-medium text-ink-2">
+        Link
+      </label>
+      <input
+        id={urlId}
+        type="url"
+        inputMode="url"
+        value={url}
+        onChange={(event) => setUrl(event.target.value)}
+        onBlur={() => void save()}
+        placeholder="https://"
+        className="cs-input mt-1 !h-10 text-sm"
+      />
+      <p className="mt-2 min-h-4 text-xs text-ink-2" aria-live="polite">
+        {status.kind === "saving"
+          ? "Saving…"
+          : status.kind === "saved"
+            ? "Saved."
+            : status.kind === "error"
+              ? <span className="text-danger">{status.message}</span>
+              : credit.rightsConfirmedBy
+                ? `Permission confirmed by ${credit.rightsConfirmedBy}.`
+                : credit.license
+                  ? `${credit.license}.`
+                  : null}
+      </p>
+    </div>
+  );
+}
+
+function GeneratedImage({ img, sourced = false, feature = false, maxHeight, selected, onSelect, onDeleted }: {
   img: GeneratedImageView;
+  /** A photograph used as it is, not a generated variation. */
+  sourced?: boolean;
   /** The only image: shown large, but capped so a square cannot run away. */
   feature?: boolean;
   /** The room the featured image actually has, when the stage is clipped
@@ -1331,9 +1545,12 @@ function GeneratedImage({ img, feature = false, maxHeight, selected, onSelect, o
 
   const [ratioW, ratioH] = img.aspectRatio.split(":").map(Number);
   const ratio = ratioW && ratioH ? ratioW / ratioH : 1;
+  // What to call it wherever it is named: a photograph has no variation number.
+  const name = sourced ? "the cover photograph" : `variation ${img.variationNo}`;
+  const Name = sourced ? "The cover photograph" : `Variation ${img.variationNo}`;
 
   async function remove() {
-    if (!window.confirm(`Delete generated image variation ${img.variationNo}? This cannot be undone.`)) return;
+    if (!window.confirm(`Delete ${sourced ? "this photograph" : `generated image variation ${img.variationNo}`}? This cannot be undone.`)) return;
     setDeleting(true);
     setDeleteError(null);
     try {
@@ -1375,7 +1592,7 @@ function GeneratedImage({ img, feature = false, maxHeight, selected, onSelect, o
           className="absolute inset-0 z-10 cursor-pointer transition-colors duration-(--duration-fast) ease-(--ease-spring) hover:bg-ink/5 focus-visible:outline-none focus-visible:shadow-[inset_0_0_0_3px_var(--orange-200)]"
         >
           <span className="sr-only">
-            {selected ? `Variation ${img.variationNo} will be published` : `Publish variation ${img.variationNo}`}
+            {selected ? `${Name} will be published` : `Publish ${name}`}
           </span>
         </button>
         {/* NO "PUBLISHING" BADGE. It was an orange pill laid over the top-left
@@ -1389,7 +1606,7 @@ function GeneratedImage({ img, feature = false, maxHeight, selected, onSelect, o
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src={img.url}
-          alt={`Generated companion image, variation ${img.variationNo}`}
+          alt={sourced ? "Cover photograph" : `Generated companion image, variation ${img.variationNo}`}
           loading="lazy"
           decoding="async"
           className="w-full object-cover"
@@ -1403,7 +1620,7 @@ function GeneratedImage({ img, feature = false, maxHeight, selected, onSelect, o
             href={img.url}
             download
             className="grid size-9 place-items-center rounded-full bg-surface/90 text-ink-2 shadow-sm backdrop-blur-sm transition-colors hover:bg-surface hover:text-ink focus-visible:outline-none focus-visible:shadow-[var(--shadow-focus)]"
-            aria-label={`Download variation ${img.variationNo}`}
+            aria-label={`Download ${name}`}
           >
             <IconDownload width={15} height={15} />
           </a>
@@ -1412,7 +1629,7 @@ function GeneratedImage({ img, feature = false, maxHeight, selected, onSelect, o
             onClick={remove}
             disabled={deleting}
             className="grid size-9 place-items-center rounded-full bg-surface/90 text-danger-ink shadow-sm backdrop-blur-sm transition-colors hover:bg-danger-soft focus-visible:outline-none focus-visible:shadow-[var(--shadow-focus)] disabled:opacity-50"
-            aria-label={deleting ? `Deleting variation ${img.variationNo}` : `Delete variation ${img.variationNo}`}
+            aria-label={deleting ? `Deleting ${name}` : `Delete ${name}`}
           >
             <IconTrash width={15} height={15} />
           </button>

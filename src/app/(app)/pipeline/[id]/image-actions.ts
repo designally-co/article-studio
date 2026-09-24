@@ -14,7 +14,9 @@ import {
   loadSharp,
   referenceView,
 } from "@/lib/pipeline/images";
-import type { GenerationRunResult, UploadedReferenceView } from "@/lib/pipeline/views";
+import type { GeneratedImageView, GenerationRunResult, UploadedReferenceView } from "@/lib/pipeline/views";
+import { updateCoverCreditCore, coverFromReferenceCore } from "@/lib/pipeline/sourced-cover";
+import type { CoverCredit } from "@/db/schema";
 import type { ImageAspectRatio } from "@/lib/image/providers";
 
 /* The work lives in @/lib/pipeline/images so the autopilot runner can do it
@@ -144,6 +146,36 @@ export async function setCoverImageAction(projectId: string, imageId: string): P
     })
     .where(eq(projects.id, projectId));
   revalidatePath(`/pipeline/${projectId}`);
+}
+
+/**
+ * Make a reference photograph the cover as it is. Session-checked wrapper; the
+ * rules — including why `rightsConfirmed` is required for anything without an
+ * open licence — live in @/lib/pipeline/sourced-cover.
+ */
+export async function coverFromReferenceAction(
+  projectId: string,
+  referenceId: string,
+  rightsConfirmed: boolean
+): Promise<{ image: GeneratedImageView; credit: CoverCredit }> {
+  const user = await requireUser();
+  const result = await coverFromReferenceCore(projectId, referenceId, {
+    rightsConfirmed: rightsConfirmed === true,
+    confirmedBy: user.email,
+  });
+  revalidatePath(`/pipeline/${projectId}`);
+  return result;
+}
+
+export async function updateCoverCreditAction(
+  projectId: string,
+  imageId: string,
+  edit: { label: string; url: string }
+): Promise<CoverCredit> {
+  await requireUser();
+  const credit = await updateCoverCreditCore(projectId, imageId, edit);
+  revalidatePath(`/pipeline/${projectId}`);
+  return credit;
 }
 
 export async function deleteGeneratedImageAction(imageId: string): Promise<void> {

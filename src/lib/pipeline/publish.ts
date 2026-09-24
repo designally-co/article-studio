@@ -188,6 +188,23 @@ export async function publishToHubCore(
      again. Inline links inside the prose are untouched. */
   const { body: bodyWithoutSources, references } = splitSourcesSection(bodyMarkdown);
 
+  /* A PHOTOGRAPH IS CREDITED WHERE THE ARTICLE CREDITS EVERYTHING ELSE. When the
+     cover is someone's picture rather than a generated one, the line the editor
+     approved goes at the end of References. Only if the cover actually went up:
+     a credit under an article with no image is a credit for nothing. The Hub
+     needs a link on every reference, so a credit with none is left out and
+     said so. */
+  const credit = chosen ? loaded.project.inputs.coverCredits?.[chosen.id] : undefined;
+  if (credit && coverMediaId !== undefined) {
+    const label = credit.label.trim();
+    if (label && credit.url && !references.some((reference) => reference.url === credit.url && reference.label === label)) {
+      references.push({ label, url: credit.url });
+    } else if (!credit.url) {
+      coverWarning =
+        "The cover's credit has no link, and the Hub needs one for every reference, so it was left out. Add the link on the image stage and publish again.";
+    }
+  }
+
   const result = await publishArticleToHub({
     title,
     tags,
