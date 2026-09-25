@@ -83,7 +83,7 @@ export async function uploadImageReferenceAction(
 export async function findReferenceImagesAction(
   projectId: string,
   options?: { query?: string }
-): Promise<{ references: UploadedReferenceView[]; note?: string }> {
+): Promise<{ references: UploadedReferenceView[]; note?: string; subjectIds?: string[] }> {
   await requireUser();
   const result = await findReferenceImagesCore(projectId, options);
   revalidatePath(`/pipeline/${projectId}`);

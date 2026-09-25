@@ -35,6 +35,12 @@ export type ReferenceCandidate = {
   sourceName: string;
   license: string | null;
   attribution: string | null;
+  /**
+   * A cited page's picture, as judged against the article: `subject` shows the
+   * very thing the article is about and may run as its cover; `related` is
+   * material to generate from. Unset for library photographs.
+   */
+  match?: "subject" | "related";
 };
 
 /**

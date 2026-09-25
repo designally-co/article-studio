@@ -662,6 +662,14 @@ function ImagePanel({
       setReferences(result.references);
       const notes: string[] = [];
       if (result.note) notes.push(result.note);
+      /* A cited page's picture that shows the very thing the article is about
+         is selected, and said to be: it is the one worth considering as the
+         cover as it is, which a routine would do by itself. */
+      const subjectId = result.subjectIds?.[0];
+      if (subjectId) {
+        setChosenReferenceId(subjectId);
+        notes.push("The selected picture shows what this article is about. Use it as the cover, or generate from it.");
+      }
       if (
         result.references.length > 0 &&
         !selectedOption?.capabilities.referenceImages &&

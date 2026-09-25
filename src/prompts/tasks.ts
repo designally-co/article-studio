@@ -333,6 +333,32 @@ Library captions, for context only:
 ${params.captions.map((caption, index) => `${index + 1}. ${caption || "(no caption)"}`).join("\n")}`;
 }
 
+export function sourceImageJudgeTask(params: {
+  title: string;
+  angle?: string;
+  opening: string;
+  pages: string[];
+}): string {
+  return `## Task: judge pictures taken from the pages this article cites
+
+${params.pages.length} pictures are attached, in order: the first image is candidate 1, the second is candidate 2, and so on. Each was taken from a web page the article cites as a source. Judge what each picture actually SHOWS.
+
+The article:
+Title: ${params.title}${params.angle ? `\nAngle: ${params.angle}` : ""}
+Opening:
+${params.opening}
+
+Give every candidate exactly one verdict:
+- \`subject\`: shows the very thing this article is about — the specific identity, typeface, product, publication, building, campaign or piece of work the article names and discusses. A reader would recognise it as a picture OF the article's subject.
+- \`related\`: belongs to the article's world and would make a good reference for a new image — the same kind of work, material or setting — but it is not the specific thing the article is about.
+- \`reject\`: anything else. ALWAYS reject a photograph whose main subject is a person's face or upper body — an author, contributor, staff or speaker headshot, a portrait, a team photo — whoever it may be. Also reject logos and wordmarks on their own, advertising, buttons and interface chrome, thumbnails of other articles, and pictures that are mostly readable text.
+
+Be strict with \`subject\`: it means the picture could run as this article's cover because it shows exactly what the article is about. When unsure between \`subject\` and \`related\`, choose \`related\`.
+
+The page each picture came from, for context only:
+${params.pages.map((page, index) => `${index + 1}. ${page}`).join("\n")}`;
+}
+
 export function brandReviewTask(article: string): string {
   return `## Task: qualitative brand review
 Review the article against the supplied Designally brand strategy and project foundation. Do not calculate a score, approval rate, or predicted performance. Evaluate these exact criteria:
