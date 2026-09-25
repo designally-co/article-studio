@@ -40,7 +40,7 @@ import type { ImageAspectRatio } from "@/lib/image/providers";
 import type { GeneratedImageView, UploadedReferenceView } from "@/lib/pipeline/views";
 import type { CoverCredit } from "@/db/schema";
 import { ConfirmDialog } from "@/components/confirm-dialog";
-import { MAX_FOUND_REFERENCES } from "@/lib/image/reference-policy";
+import { COVER_MIN_WIDTH, MAX_FOUND_REFERENCES } from "@/lib/image/reference-policy";
 import type { BrandReviewResult } from "@/lib/brand-review";
 import { type ArticleVisualBrief, type ImagePromptVariant } from "@/lib/image/visual-brief";
 
@@ -666,9 +666,14 @@ function ImagePanel({
          is selected, and said to be: it is the one worth considering as the
          cover as it is, which a routine would do by itself. */
       const subjectId = result.subjectIds?.[0];
-      if (subjectId) {
-        setChosenReferenceId(subjectId);
-        notes.push("The selected picture shows what this article is about. Use it as the cover, or generate from it.");
+      const subject = result.references.find((item) => item.id === subjectId);
+      if (subject) {
+        setChosenReferenceId(subject.id);
+        notes.push(
+          canBeCover(subject)
+            ? "The selected picture shows what this article is about. Use it as the cover, or generate from it."
+            : "The selected picture shows what this article is about, but it is too small to use as the cover. Generate from it.",
+        );
       }
       if (
         result.references.length > 0 &&
@@ -812,6 +817,13 @@ function ImagePanel({
     } finally {
       setCoverBusy(false);
     }
+  }
+
+  /* Big enough to go up as it is. An Unsplash photograph passes whatever its
+     reference copy measures: its full-size original is what becomes the cover
+     (see sourced-cover.ts), and the server checks those bytes. */
+  function canBeCover(item: UploadedReferenceView): boolean {
+    return item.width >= COVER_MIN_WIDTH || /^https:\/\/unsplash\.com\//.test(item.sourceUrl ?? "");
   }
 
   function askCoverFromReference(item: UploadedReferenceView) {
@@ -1199,17 +1211,26 @@ function ImagePanel({
               {/* THE PICTURE ITSELF MAY BE THE BEST COVER. When a cited page
                   leads with the work, a generated likeness of it is the lesser
                   image — so the photograph can go to the middle as it is. */}
+              {/* The size, because it decides what the picture can be: at the
+                  delivery width it can go up as it is; below it, it is still
+                  good to generate from, and the line says so rather than
+                  offering a button the server would refuse. */}
               {activeReference && (
                 <>
+                  {` · ${activeReference.width} × ${activeReference.height}`}
                   {" · "}
-                  <button
-                    type="button"
-                    onClick={() => askCoverFromReference(activeReference)}
-                    disabled={coverBusy || busy !== null}
-                    className="font-medium text-ink underline decoration-line-strong underline-offset-2 transition-colors duration-(--duration-fast) hover:decoration-current focus-visible:outline-none focus-visible:shadow-[var(--shadow-focus)] disabled:opacity-50"
-                  >
-                    {coverBusy ? "Making it the cover…" : "Use as cover"}
-                  </button>
+                  {canBeCover(activeReference) ? (
+                    <button
+                      type="button"
+                      onClick={() => askCoverFromReference(activeReference)}
+                      disabled={coverBusy || busy !== null}
+                      className="font-medium text-ink underline decoration-line-strong underline-offset-2 transition-colors duration-(--duration-fast) hover:decoration-current focus-visible:outline-none focus-visible:shadow-[var(--shadow-focus)] disabled:opacity-50"
+                    >
+                      {coverBusy ? "Making it the cover…" : "Use as cover"}
+                    </button>
+                  ) : (
+                    <>too small for a cover, generate from it</>
+                  )}
                 </>
               )}
             </p>

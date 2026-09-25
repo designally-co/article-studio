@@ -162,6 +162,19 @@ function cachedSystem(
 }
 
 /** Concatenate text blocks from a message response. */
+/**
+ * The answer after the last search, when the model searched.
+ *
+ * With web search on, the reply interleaves the model's own commentary ("Let me
+ * look for the studio's case study…"), the searches and their results, and the
+ * answer at the end. Joined together, the commentary comes first, and a bracket
+ * in it is where the JSON scan would start.
+ */
+function afterLastSearch(content: Anthropic.ContentBlock[]): Anthropic.ContentBlock[] {
+  const last = content.map((block) => block.type as string).lastIndexOf("web_search_tool_result");
+  return last === -1 ? content : content.slice(last + 1);
+}
+
 function textOf(content: Anthropic.ContentBlock[]): string {
   return content
     .filter((b): b is Anthropic.TextBlock => b.type === "text")
@@ -268,7 +281,7 @@ export async function runJson<T>(params: {
       schemaRetryCount: retries,
     });
 
-    const raw = extractJson<unknown>(textOf(msg.content));
+    const raw = extractJson<unknown>(textOf(params.webSearch ? afterLastSearch(msg.content) : msg.content));
     if (raw === null) {
       if (msg.stop_reason === "max_tokens") return { truncated: true, usage: msg.usage };
       throw new Error("Model did not return the required structured response.");

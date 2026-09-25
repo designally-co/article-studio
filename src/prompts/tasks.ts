@@ -64,6 +64,7 @@ Requirements:
 - For dated topics, include only items with evidence connecting them to the requested period.
 - Never invent popularity, release timing, quotations, facts, or URLs.
 - Do not turn the subject into business advice or a Designally sales message.
+- Every source must be the specific page about the specific thing it supports: the studio's or brand's own case study or project page, the foundry's page for the typeface, the maker's own announcement, or the article that reports that specific development. Prefer the maker's own page over coverage of it. Never cite a homepage, a section or listing page (a /work, /projects, /blog, /news or /articles index, a category or tag page), or a search results page.
 
 Respond as JSON with a working title, concise introduction angle, 4–8 purposeful sections with specific evidence-led points, 4–10 reliable sources, and an empty CTA unless the subject genuinely needs a useful next step.`;
 }

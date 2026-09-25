@@ -6,6 +6,7 @@ import { IMAGE_SYSTEM_PROMPT } from "@/prompts/system";
 import { sourceImageJudgeTask } from "@/prompts/tasks";
 import { downloadImage, fingerprint, USER_AGENT, type ReferenceCandidate } from "./reference-sources";
 import { loadSharp } from "./sharp";
+import { COVER_MIN_WIDTH } from "./reference-policy";
 
 /**
  * Pictures from the pages the article cites — the studio's own pictures of its
@@ -549,9 +550,13 @@ export async function findArticleSourceImages(
         )
     : dealt.filter((entry) => entry.lead).map((entry) => ({ ...entry.candidate, match: "related" as const }));
 
-  // Subject first; the round order is kept within each.
+  /* Subject first, and among those the ones big enough to be the cover as they
+     are (COVER_MIN_WIDTH) — a routine asks for one, and uses it as the cover
+     only if it clears that bar. The round order is kept within each group. */
+  const coverSized = (candidate: ReferenceCandidate) => candidate.width >= COVER_MIN_WIDTH;
   return [
-    ...ruled.filter((candidate) => candidate.match === "subject"),
+    ...ruled.filter((candidate) => candidate.match === "subject" && coverSized(candidate)),
+    ...ruled.filter((candidate) => candidate.match === "subject" && !coverSized(candidate)),
     ...ruled.filter((candidate) => candidate.match === "related"),
   ].slice(0, options.limit);
 }
