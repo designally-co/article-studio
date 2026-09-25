@@ -232,7 +232,14 @@ export async function publishToHubCore(
       // The CMS address too: a Hub draft has no public page to link to.
       publishedTo: { ...existing, knowledgeHub: result.absoluteUrl, knowledgeHubAdmin: result.adminUrl },
       ...(status === "published" ? { status: "published" as const } : {}),
-      inputs: { ...loaded.project.inputs, publishDek: summary ?? loaded.project.inputs.publishDek },
+      inputs: {
+        ...loaded.project.inputs,
+        publishDek: summary ?? loaded.project.inputs.publishDek,
+        /* Which image the Hub now has as the cover, so the library can show
+           that one for a published article even after the editor picks another
+           here. Cleared (undefined drops the key) when the cover did not go up. */
+        publishedCoverImageId: coverMediaId !== undefined ? chosen?.id : undefined,
+      },
       updatedAt: new Date(),
     })
     .where(eq(projects.id, projectId));
