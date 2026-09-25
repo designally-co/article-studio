@@ -39,31 +39,35 @@ import { isAnthropicConfigured } from "@/lib/anthropic";
  * paths to the same artefact stay honest about each other.
  */
 
-/** Not the function's own ceiling — the caller's, less room to record the outcome. */
-const STEP_BUDGET_MS = 50_000;
+/*
+ * THE CLOCK IS OURS NOW. These were sized for Vercel, whose functions were
+ * killed at 60 seconds: 45s a step, 50s a poke, and research without web
+ * search because a searching plan needed ~40s on its own. Article Studio has
+ * run on the office NAS since 15 Sep 2026 and nothing there cuts a request
+ * off, so they are sized for the work instead. What still matters is that a
+ * step which hangs is called off and recorded rather than retried forever,
+ * and that two pokes never advance one run at once.
+ */
+
+/** How long one poke keeps advancing runs before it hands back. Under the Worker's five-minute cadence. */
+const STEP_BUDGET_MS = 4 * 60_000;
 
 /**
  * The most one step is given before it is called off.
  *
- * WITHOUT THIS THE PLATFORM DOES THE KILLING, AND THAT IS THE WORST OUTCOME.
- * A Vercel function is terminated at 60 seconds with a 504 and no code of ours
- * runs afterwards — so the attempt goes unrecorded, the claim quietly expires,
- * and the same over-long step is retried on the next poke, and the next, for
- * as long as the schedule lives. Calling it off ourselves means the run is
- * marked, counted, and eventually stopped with a message a person can read.
+ * Room for the slowest step there is: a plan that searches (up to 100s) and
+ * then, if that fails, plans again without searching (~40s). Calling a hung
+ * step off ourselves still matters — the run is marked, counted and eventually
+ * stopped with a message a person can read, instead of silently retried.
  */
-const STEP_DEADLINE_MS = 45_000;
+const STEP_DEADLINE_MS = 150_000;
 
 /**
- * Room the loop wants before it begins ANOTHER step in the same poke.
- *
- * The first version asked only whether the budget had run out, which is the
- * wrong question: at 30 seconds spent there is time left, but not enough for a
- * draft, and starting one there is what produced a 504. Steps are not
- * interchangeable — a topic takes ten seconds and a draft can take fifty — so
- * the loop now refuses to start one unless a slow one would still fit.
+ * Room the loop wants before it begins ANOTHER step in the same poke: as much
+ * as the slowest step may take, so one is never started that cannot finish
+ * inside the poke's budget.
  */
-const STEP_ROOM_MS = 45_000;
+const STEP_ROOM_MS = STEP_DEADLINE_MS;
 
 /**
  * How long a claimed run is off-limits to another worker.
@@ -73,7 +77,7 @@ const STEP_ROOM_MS = 45_000;
  * by expiry rather than wedging it forever — which is why this is a timestamp
  * and not a boolean.
  */
-const CLAIM_MS = 3 * 60_000;
+const CLAIM_MS = 4 * 60_000;
 
 /** After this many failures at the same step, stop and leave the error visible. */
 const MAX_ATTEMPTS = 3;
@@ -591,8 +595,7 @@ async function advance(run: ClaimedRun, routine: Routine) {
 
   switch (run.step) {
     case "plan":
-      // Without search: a routine step has 45 seconds (STEP_DEADLINE_MS).
-      await preparePlanCore(projectId, { webSearch: false });
+      await preparePlanCore(projectId);
       next = "draft";
       break;
     case "draft":
@@ -653,8 +656,8 @@ function withDeadline<T>(work: Promise<T>, ms: number, step: RoutineStep): Promi
       reject(
         new Error(
           `The ${step} step took longer than ${Math.round(ms / 1000)}s and was stopped. ` +
-            "The request has a 60-second ceiling; a step that cannot fit needs less work in it, " +
-            "or a plan that allows longer functions."
+            "Something it waits on (the model, a source page, image generation) did not answer in time; " +
+            "the next poke tries again."
         )
       );
     }, ms);

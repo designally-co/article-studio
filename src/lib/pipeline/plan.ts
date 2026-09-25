@@ -23,28 +23,12 @@ import { pillarForDirection } from "@/lib/content-pillars";
  */
 
 /*
- * NO WEB SEARCH HERE. It does not fit, and this is the end of a long argument
- * with the clock rather than the start of another one.
+ * The plan WITHOUT search: the fallback when the searching call fails.
  *
- * Measured locally against the real API, Haiku 4.5, with this plan's schema:
- *
- *     with one web search   36.4s
- *     without web search    18.6s
- *
- * Ceilings of 25s, 32s and 42s were all tried. The 42s attempt was watched in
- * production: the call ran to roughly 0:43 on the page's own timer and then
- * reported "Request timed out." Production is slower than the local
- * measurement — the function runs in sin1 and pays cold starts — so a search
- * call cannot be relied on to land inside a 60s function at all, and every
- * ceiling that fit the budget sat under what the call needs.
- *
- * One call, no search, no fallback, ~19s. The task variant used is the one the
- * old fallback used whenever the web tool was unavailable, so the plan states
- * no recency it cannot support rather than inventing it.
- *
- * TO GET SOURCES BACK, the fix is not a bigger number: it is a function that
- * can run longer (a paid plan raises 60s to 300s) or moving the plan to a
- * background job that is not bound by a request timeout.
+ * Search was once left out altogether, because on Vercel a searching plan
+ * (~36s measured) could not reliably finish inside a 60-second function. The
+ * app runs on the office NAS now, where nothing cuts a request off; see
+ * SEARCH_PLAN_TIMEOUT_MS below.
  */
 const PLAN_TIMEOUT_MS = 40_000;
 
@@ -61,17 +45,11 @@ async function bumpStage(projectId: string, to: number) {
 }
 
 /**
- * WITH SEARCH, NOW THAT THERE IS TIME FOR IT. The note above was written for
- * Vercel's 60 seconds. Article Studio has run on the office NAS since 15 Sep
- * 2026, where a request is not cut off, so an editor's plan searches again:
- * the sources come back as the specific pages that were actually read — a
- * studio's case study rather than the studio's homepage — which is also what
- * the image stage looks for pictures in.
- *
- * Still not on Vercel (the rollback target), and not in routines, whose steps
- * keep a 45-second deadline sized for Vercel (see `STEP_DEADLINE_MS`). If the
- * searching call fails or runs long, the plan is written without search, as
- * before.
+ * WITH SEARCH. The sources come back as the specific pages that were actually
+ * read — a studio's case study rather than the studio's homepage — which is
+ * also where the image stage looks for pictures. Editors and routines alike;
+ * a routine step allows for this (see STEP_DEADLINE_MS in the runner). If the
+ * searching call fails or runs long, the plan is written without search.
  */
 const SEARCH_PLAN_TIMEOUT_MS = 100_000;
 const SEARCH_USES = 4;
@@ -156,7 +134,7 @@ export async function preparePlanCore(
       additionalProperties: false,
   };
   let searched: OutlineJson | null = null;
-  if (options?.webSearch !== false && !process.env.VERCEL) {
+  if (options?.webSearch !== false) {
     try {
       ({ data: searched } = await runJson<OutlineJson>({
         model: research,
