@@ -1,7 +1,11 @@
 import "server-only";
 import { splitSourcesSection } from "@/lib/outline";
 import { publicFetch, readCapped } from "@/lib/net/public-fetch";
+import { getModels, runJson, type PromptImage } from "@/lib/anthropic";
+import { IMAGE_SYSTEM_PROMPT } from "@/prompts/system";
+import { sourceImageJudgeTask } from "@/prompts/tasks";
 import { downloadImage, fingerprint, USER_AGENT, type ReferenceCandidate } from "./reference-sources";
+import { loadSharp } from "./sharp";
 
 /**
  * Pictures from the pages the article cites — the studio's own pictures of its
@@ -44,7 +48,21 @@ const MIN_BODY_EDGE = 800;
  * class and id — a studio's case study rarely calls its hero `logo.png`, and a
  * site's header nearly always does.
  */
-const CHROME = /logo|icon|avatar|sprite|badge|emoji|spinner|placeholder|loader|pixel|tracking|author|profile|headshot|favicon|banner-ad|advert/i;
+const CHROME =
+  /logo|icon|avatar|gravatar|sprite|badge|emoji|spinner|placeholder|loader|pixel|tracking|author|byline|contributor|profile|headshot|favicon|banner-ad|advert/i;
+
+/**
+ * THE AUTHOR IS NOT THE WORK. A byline carries the writer's photograph, often
+ * large enough to pass every size test, and sometimes named nothing more
+ * telling than `image-3.jpg`. So the blocks that hold one are removed before
+ * any picture is collected: links to a person's page, and elements whose
+ * class, id or microdata says author, byline, contributor, bio or staff. What
+ * slips past this is caught by the judge, which rejects any portrait.
+ */
+const AUTHOR_LINK = /\/(?:authors?|contributors?|writers?|people|person|staff|team|profiles?|users?)\//i;
+const AUTHOR_BLOCK =
+  /author|byline|contributor|writer|avatar|gravatar|profile|headshot|staff|(?:^|[\s_-])bio(?:$|[\s_-])/i;
+const VOID_TAGS = new Set(["img", "source", "br", "hr", "input", "meta", "link", "wbr"]);
 
 /** The links an article cites: its Sources list first, then links in the prose. */
 export function citedPages(markdown: string): { label: string; url: string }[] {
@@ -61,16 +79,18 @@ export function citedPages(markdown: string): { label: string; url: string }[] {
 }
 
 function decodeEntities(value: string): string {
-  return value
-    .replace(/&#x([0-9a-f]+);/gi, (_, hex: string) => String.fromCodePoint(parseInt(hex, 16)))
-    .replace(/&#(\d+);/g, (_, decimal: string) => String.fromCodePoint(Number(decimal)))
-    .replace(/&quot;/g, '"')
-    .replace(/&apos;/g, "'")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    // Last, so "&amp;lt;" stays the text "&lt;" rather than becoming "<".
-    .replace(/&amp;/g, "&")
-    .trim();
+  return (
+    value
+      .replace(/&#x([0-9a-f]+);/gi, (_, hex: string) => String.fromCodePoint(parseInt(hex, 16)))
+      .replace(/&#(\d+);/g, (_, decimal: string) => String.fromCodePoint(Number(decimal)))
+      .replace(/&quot;/g, '"')
+      .replace(/&apos;/g, "'")
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      // Last, so "&amp;lt;" stays the text "&lt;" rather than becoming "<".
+      .replace(/&amp;/g, "&")
+      .trim()
+  );
 }
 
 /**
@@ -140,15 +160,18 @@ function largestInSrcset(srcset: string): string | null {
  * the header, the footer and the "more stories" rail.
  */
 function bodyImages(html: string): string[] {
-  const region =
+  const region = withoutAuthorBlocks(
     html.match(/<article\b[\s\S]*?<\/article>/i)?.[0] ??
-    html.match(/<main\b[\s\S]*?<\/main>/i)?.[0] ??
-    html.slice(Math.max(html.search(/<body\b/i), 0));
+      html.match(/<main\b[\s\S]*?<\/main>/i)?.[0] ??
+      html.slice(Math.max(html.search(/<body\b/i), 0)),
+  );
 
   const found: string[] = [];
   for (const tag of region.matchAll(/<(?:img|source)\b[^>]*>/gi)) {
     const attributes = attributesOf(tag[0]);
-    const described = ["alt", "class", "id", "src", "data-src"].map((name) => attributes.get(name) ?? "").join(" ");
+    const described = ["alt", "class", "id", "src", "data-src"]
+      .map((name) => attributes.get(name) ?? "")
+      .join(" ");
     if (CHROME.test(described)) continue;
     // A size the markup states, and states as small, is believed.
     const width = Number(attributes.get("width") ?? 0);
@@ -166,6 +189,55 @@ function bodyImages(html: string): string[] {
     found.push(url);
   }
   return found;
+}
+
+/** The markup with every author block taken out. See AUTHOR_BLOCK. */
+function withoutAuthorBlocks(html: string): string {
+  // Links to a person's page. Anchors do not nest, so a lazy match is exact.
+  const unlinked = html.replace(/<a\b[^>]*>[\s\S]*?<\/a>/gi, (block) => {
+    const open = block.match(/^<a\b[^>]*>/i)?.[0] ?? "";
+    return AUTHOR_LINK.test(attributesOf(open).get("href") ?? "") ? "" : block;
+  });
+
+  // Marked elements, removed with everything inside them, counting depth so a
+  // <div> inside the author <div> does not end the removal early.
+  const opener = /<([a-z][a-z0-9-]*)\b[^>]*>/gi;
+  let out = "";
+  let index = 0;
+  for (;;) {
+    opener.lastIndex = index;
+    let found: RegExpExecArray | null = null;
+    for (let tag = opener.exec(unlinked); tag; tag = opener.exec(unlinked)) {
+      const attributes = attributesOf(tag[0]);
+      const marker = ["class", "id", "itemprop", "rel", "data-testid", "data-component"]
+        .map((name) => attributes.get(name) ?? "")
+        .join(" ");
+      if (AUTHOR_BLOCK.test(marker)) {
+        found = tag;
+        break;
+      }
+    }
+    if (!found) return out + unlinked.slice(index);
+
+    out += unlinked.slice(index, found.index);
+    const name = found[1].toLowerCase();
+    let end = found.index + found[0].length;
+    if (!VOID_TAGS.has(name) && !found[0].endsWith("/>")) {
+      const tags = new RegExp(`<(/?)${name}\\b[^>]*>`, "gi");
+      tags.lastIndex = end;
+      let depth = 1;
+      end = unlinked.length;
+      for (let tag = tags.exec(unlinked); tag; tag = tags.exec(unlinked)) {
+        if (tag[0].endsWith("/>")) continue;
+        depth += tag[1] ? -1 : 1;
+        if (depth === 0) {
+          end = tag.index + tag[0].length;
+          break;
+        }
+      }
+    }
+    index = end;
+  }
 }
 
 /** The address without its query: one picture at two CDN sizes is one picture. */
@@ -239,8 +311,15 @@ function isFlatGraphic(image: { data: Buffer; width: number; height: number }): 
   return image.data.length / (image.width * image.height) < MIN_BYTES_PER_PIXEL;
 }
 
-/** Up to PER_PAGE downloaded pictures from one page, lead first. */
-async function downloadPictures(page: { label: string; url: string }): Promise<ReferenceCandidate[]> {
+/**
+ * Up to PER_PAGE downloaded pictures from one page, lead first. `lead` marks
+ * the page's own og:image, which the publisher chose and which is kept even
+ * when the judge cannot run.
+ */
+async function downloadPictures(page: {
+  label: string;
+  url: string;
+}): Promise<{ candidate: ReferenceCandidate; lead: boolean }[]> {
   const pictures = await picturesOf(page);
   if (!pictures) return [];
 
@@ -250,24 +329,149 @@ async function downloadPictures(page: { label: string; url: string }): Promise<R
   ]);
 
   const kept = [
-    ...(lead && !isFlatGraphic(lead) ? [lead] : []),
-    ...body.filter(
-      (image): image is NonNullable<typeof image> =>
-        !!image && Math.max(image.width, image.height) >= MIN_BODY_EDGE && !isFlatGraphic(image),
-    ),
+    ...(lead && !isFlatGraphic(lead) ? [{ image: lead, lead: true }] : []),
+    ...body
+      .filter(
+        (image): image is NonNullable<typeof image> =>
+          !!image && Math.max(image.width, image.height) >= MIN_BODY_EDGE && !isFlatGraphic(image),
+      )
+      .map((image) => ({ image, lead: false })),
   ].slice(0, PER_PAGE);
 
-  return kept.map((image, index) => ({
-    ...image,
-    originalName: `${pictures.title || "Source image"}${index ? ` (${index + 1})` : ""}.${image.mimeType.split("/")[1] ?? "jpg"}`,
-    origin: "article_source" as const,
-    // The page, not the file: the credit and the permission are about where
-    // the picture was published, and that is what a person can check.
-    sourceUrl: page.url,
-    sourceName: pictures.sourceName,
-    license: null,
-    attribution: null,
+  return kept.map(({ image, lead: isLead }, index) => ({
+    lead: isLead,
+    candidate: {
+      ...image,
+      originalName: `${pictures.title || "Source image"}${index ? ` (${index + 1})` : ""}.${image.mimeType.split("/")[1] ?? "jpg"}`,
+      origin: "article_source" as const,
+      // The page, not the file: the credit and the permission are about where
+      // the picture was published, and that is what a person can check.
+      sourceUrl: page.url,
+      sourceName: pictures.sourceName,
+      license: null,
+      attribution: null,
+    },
   }));
+}
+
+/** How long the judge may take; this runs inside a sixty-second step. */
+const JUDGE_TIMEOUT_MS = 20_000;
+/** The side a preview is shrunk to before the judge sees it. */
+const PREVIEW_EDGE = 768;
+/** Raw bytes the vision API will take when a preview cannot be made. */
+const MAX_RAW_PREVIEW_BYTES = 3.5 * 1024 * 1024;
+
+type Verdict = "subject" | "related" | "reject";
+
+/** A small JPEG of the picture for the judge, or the bytes themselves where sharp is missing. */
+async function previewOf(candidate: ReferenceCandidate): Promise<PromptImage | null> {
+  try {
+    const sharp = await loadSharp();
+    const data = await sharp(candidate.data)
+      .rotate()
+      .resize({
+        width: PREVIEW_EDGE,
+        height: PREVIEW_EDGE,
+        fit: "inside",
+        withoutEnlargement: true,
+      })
+      .jpeg({ quality: 70 })
+      .toBuffer();
+    return { base64: data.toString("base64"), mediaType: "image/jpeg" };
+  } catch {
+    if (candidate.data.length > MAX_RAW_PREVIEW_BYTES) return null;
+    return {
+      base64: candidate.data.toString("base64"),
+      mediaType: candidate.mimeType,
+    };
+  }
+}
+
+/**
+ * Look at every picture and rule on it against the article. Null when the judge
+ * could not run; a picture it did not rule on is rejected — silence is not
+ * approval.
+ */
+async function judgeSourcePictures(
+  candidates: ReferenceCandidate[],
+  article: {
+    projectId: string;
+    title: string;
+    angle?: string;
+    opening: string;
+  },
+): Promise<Verdict[] | null> {
+  const previews = await Promise.all(candidates.map(previewOf));
+  const visible = candidates
+    .map((candidate, index) => ({ candidate, index, preview: previews[index] }))
+    .filter(
+      (
+        entry,
+      ): entry is {
+        candidate: ReferenceCandidate;
+        index: number;
+        preview: PromptImage;
+      } => !!entry.preview,
+    );
+  if (visible.length === 0) return null;
+
+  try {
+    const { research } = await getModels();
+    const { data } = await runJson<{ verdicts: Verdict[] }>({
+      model: research,
+      system: IMAGE_SYSTEM_PROMPT,
+      task: sourceImageJudgeTask({
+        title: article.title,
+        angle: article.angle,
+        opening: article.opening,
+        pages: visible.map((entry) => `${entry.candidate.sourceName} — ${entry.candidate.sourceUrl}`),
+      }),
+      images: visible.map((entry) => entry.preview),
+      schema: {
+        type: "object",
+        properties: {
+          verdicts: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                candidate: { type: "integer" },
+                verdict: {
+                  type: "string",
+                  enum: ["subject", "related", "reject"],
+                },
+              },
+              required: ["candidate", "verdict"],
+              additionalProperties: false,
+            },
+          },
+        },
+        required: ["verdicts"],
+        additionalProperties: false,
+      },
+      maxTokens: 800,
+      timeoutMs: JUDGE_TIMEOUT_MS,
+      allowHeal: false,
+      cache: false,
+      projectId: article.projectId,
+      stage: "source_image_judge",
+      validate: (raw) => {
+        const list = (raw as { verdicts?: { candidate?: unknown; verdict?: unknown }[] }).verdicts;
+        const verdicts: Verdict[] = candidates.map(() => "reject");
+        for (const item of Array.isArray(list) ? list : []) {
+          const n = Number(item?.candidate);
+          if (!Number.isInteger(n) || n < 1 || n > visible.length) continue;
+          if (item.verdict === "subject" || item.verdict === "related") {
+            verdicts[visible[n - 1].index] = item.verdict;
+          }
+        }
+        return { verdicts };
+      },
+    });
+    return data.verdicts;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -276,12 +480,24 @@ async function downloadPictures(page: { label: string; url: string }): Promise<R
  *
  * Dealt round the pages rather than page by page: every page's lead first,
  * then every page's second picture, then its third. Three angles on the first
- * page's project are worth less than one picture each of three projects, and
- * the autopilot, which asks for one, gets the first page's lead.
+ * page's project are worth less than one picture each of three projects.
+ *
+ * THEN JUDGED, and only then cut to `limit`, so a rejected picture never takes
+ * a place a good one could have had. What shows the article's own subject goes
+ * first — the autopilot, which asks for one, uses that one as the cover as it
+ * is (see `runReferenceStep`). Where the judge cannot run, only the pages'
+ * lead images are kept, as `related`: the publisher chose those, and nothing
+ * unjudged is ever offered as the article's subject.
  */
 export async function findArticleSourceImages(
   markdown: string,
-  options: { limit: number; exclude: Set<string> },
+  options: {
+    limit: number;
+    exclude: Set<string>;
+    projectId: string;
+    title: string;
+    angle?: string;
+  },
 ): Promise<ReferenceCandidate[]> {
   if (options.limit <= 0) return [];
   const pages = citedPages(markdown)
@@ -295,17 +511,47 @@ export async function findArticleSourceImages(
   // The same picture once, by its bytes: two pages of one site can lead with
   // the same image, and two copies of it is one choice, not two.
   const seen = new Set<string>();
-  const kept: ReferenceCandidate[] = [];
-  for (let round = 0; round < PER_PAGE && kept.length < options.limit; round += 1) {
+  const dealt: { candidate: ReferenceCandidate; lead: boolean }[] = [];
+  for (let round = 0; round < PER_PAGE; round += 1) {
     for (const pictures of perPage) {
-      const candidate = pictures[round];
-      if (!candidate) continue;
-      const print = fingerprint(candidate.data);
+      const entry = pictures[round];
+      if (!entry) continue;
+      const print = fingerprint(entry.candidate.data);
       if (seen.has(print)) continue;
       seen.add(print);
-      kept.push(candidate);
-      if (kept.length >= options.limit) break;
+      dealt.push(entry);
     }
   }
-  return kept;
+  if (dealt.length === 0) return [];
+
+  const verdicts = await judgeSourcePictures(
+    dealt.map((entry) => entry.candidate),
+    {
+      projectId: options.projectId,
+      title: options.title,
+      angle: options.angle,
+      opening: markdown
+        .replace(/^#\s+.+$/m, "")
+        .trim()
+        .slice(0, 1500),
+    },
+  );
+
+  const ruled = verdicts
+    ? dealt
+        .map((entry, index) => ({ ...entry.candidate, match: verdicts[index] }))
+        .filter(
+          (
+            candidate,
+          ): candidate is ReferenceCandidate & {
+            match: "subject" | "related";
+          } => candidate.match !== "reject",
+        )
+    : dealt.filter((entry) => entry.lead).map((entry) => ({ ...entry.candidate, match: "related" as const }));
+
+  // Subject first; the round order is kept within each.
+  return [
+    ...ruled.filter((candidate) => candidate.match === "subject"),
+    ...ruled.filter((candidate) => candidate.match === "related"),
+  ].slice(0, options.limit);
 }

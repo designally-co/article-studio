@@ -17,6 +17,7 @@ import { preparePlanCore } from "@/lib/pipeline/plan";
 import { generateDraftCore } from "@/lib/pipeline/draft";
 import { generateImagePromptCore } from "@/lib/pipeline/image-prompt";
 import { findReferenceImagesCore, generateImagesCore } from "@/lib/pipeline/images";
+import { coverFromReferenceCore } from "@/lib/pipeline/sourced-cover";
 import { publishToHubCore } from "@/lib/pipeline/publish";
 import { imageGenerationOptions } from "@/lib/image/registry";
 import { isHubConfigured } from "@/lib/hub";
@@ -463,6 +464,27 @@ async function runReferenceStep(projectId: string, count: number) {
        first, so the one kept is the closest. */
     limit: 1,
   });
+
+  /* THE WORK ITSELF, WHEN A CITED PAGE HAS IT. A picture judged to show the
+     very thing the article is about becomes the cover as it is, credited in
+     References — the user's decision (25 Sep 2026) for routines. It stands in
+     for the permission an editor confirms by hand, and is recorded as the
+     routine's so the credit says who decided. Anything that goes wrong here
+     falls through to generating from the picture instead. */
+  const subjectId = found.subjectIds?.[0];
+  if (subjectId) {
+    try {
+      const { image } = await coverFromReferenceCore(projectId, subjectId, {
+        rightsConfirmed: true,
+        confirmedBy: "Routine (automatic)",
+      });
+      await writeImageWork(projectId, { referenceId: subjectId, sourcedCoverId: image.id });
+      return;
+    } catch {
+      // Generate from it below, as from any reference.
+    }
+  }
+
   const reference = found.references[0];
   const option = (reference && options.find((o) => o.capabilities.referenceImages)) ?? options[0];
   if (!reference || !option.capabilities.referenceImages) {
@@ -505,6 +527,8 @@ function supportedRatio(
 
 /** Step three: make the picture, and say which one is the cover. */
 async function runImageStep(projectId: string, count: number) {
+  // The cover is already a picture of the work; nothing to generate.
+  if ((await readImageWork(projectId)).work?.sourcedCoverId) return;
   const options = await imageGenerationOptions();
   if (options.length === 0) {
     // Not fatal. An article without a cover is still an article, and stopping

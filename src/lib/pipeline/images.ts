@@ -63,6 +63,17 @@ export { loadSharp };
  * is never searched as it stands: it is a sentence about the topic, and a photo
  * library answered it with nothing.
  */
+export type FoundReferences = {
+  references: UploadedReferenceView[];
+  note?: string;
+  /**
+   * The references this search attached that show the very thing the article
+   * is about, as judged against it — pictures from its cited pages that could
+   * run as the cover as they are. First is best. Empty when none did.
+   */
+  subjectIds?: string[];
+};
+
 export async function findReferenceImagesCore(
   projectId: string,
   options?: {
@@ -70,7 +81,7 @@ export async function findReferenceImagesCore(
     /** At most this many new photographs. The autopilot asks for one. */
     limit?: number;
   }
-): Promise<{ references: UploadedReferenceView[]; note?: string }> {
+): Promise<FoundReferences> {
   const loaded = await loadProject(projectId);
   if (!loaded) throw new Error("Project not found.");
 
@@ -127,6 +138,9 @@ export async function findReferenceImagesCore(
     findArticleSourceImages(article, {
       limit: room,
       exclude: new Set(existing.map((row) => row.sourceUrl).filter((url): url is string => !!url)),
+      projectId,
+      title,
+      angle: loaded.project.selectedTopic?.angle,
     }).catch(() => []),
     findRelatedReferences({
       projectId,
@@ -144,6 +158,7 @@ export async function findReferenceImagesCore(
   /* Side by side, in the order found. Up to eight pictures, each re-encoded
      and uploaded, would otherwise queue behind one another inside the same
      sixty seconds the search has already spent most of. */
+  const subjectIds: string[] = [];
   const saved: UploadedReferenceView[] = await Promise.all(
     candidates.map(async (candidate) => {
       // Normalised the same way an upload is, and for the same reason: the
@@ -177,12 +192,16 @@ export async function findReferenceImagesCore(
           attribution: candidate.attribution,
         })
         .returning();
-      return referenceView(row);
+      return { view: referenceView(row), subject: candidate.match === "subject" };
     }),
-  );
+  ).then((rows) => {
+    subjectIds.push(...rows.filter((row) => row.subject).map((row) => row.view.id));
+    return rows.map((row) => row.view);
+  });
 
   return {
     references: [...existing.map(referenceView), ...saved],
+    subjectIds,
     note:
       saved.length > 0
         ? undefined

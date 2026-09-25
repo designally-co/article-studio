@@ -223,6 +223,11 @@ export type ProjectInputs = {
     referenceId?: string;
     /** Which generator to use: the editing endpoint when there is a reference. */
     optionId?: string;
+    /**
+     * Set when a cited page's picture showed the article's own subject and
+     * became the cover as it is. The image step then has nothing to generate.
+     */
+    sourcedCoverId?: string;
   };
 };
 
