@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { and, eq, desc, asc, inArray } from "drizzle-orm";
+import { and, eq, desc, asc, inArray, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import { projects, categories, images } from "@/db/schema";
 import { fetchableImageUrls } from "@/lib/image/storage";
@@ -52,6 +52,10 @@ export default async function LibraryPage({
       updatedAt: projects.updatedAt,
       topic: projects.selectedTopic,
       categoryName: categories.name,
+      // Two keys out of `inputs`, not the whole of it: it also carries prompts,
+      // candidates and drafted briefs, and this is every row on the page.
+      coverImageId: sql<string | null>`${projects.inputs} ->> 'coverImageId'`,
+      publishedCoverImageId: sql<string | null>`${projects.inputs} ->> 'publishedCoverImageId'`,
     })
     .from(projects)
     .leftJoin(categories, eq(projects.categoryId, categories.id))
@@ -65,6 +69,21 @@ export default async function LibraryPage({
     );
   }
 
+  /* THE COVER, NOT THE NEWEST PICTURE. This took each article's most recent
+     image, so generating a fourth variation changed the thumbnail of an
+     article whose chosen cover was the first — and a published article showed
+     a picture that never reached the Hub. Now it is the same answer publishing
+     gives: for a published article the image the Hub received, otherwise the
+     one chosen; the newest only when nothing was ever chosen, which is also
+     what publishing falls back to (see `coverImage`). */
+  const wantedByProject = new Map(
+    rows.map((row) => [
+      row.id,
+      [row.status === "published" ? row.publishedCoverImageId : null, row.coverImageId].filter(
+        (id): id is string => !!id,
+      ),
+    ]),
+  );
   const latestImageByProject = new Map<string, string>();
   const latestImagePathByProject = new Map<string, string>();
   if (rows.length > 0) {
@@ -82,11 +101,16 @@ export default async function LibraryPage({
       .from(images)
       .where(inArray(images.projectId, projectIds))
       .orderBy(desc(images.createdAt));
+    const byId = new Map(imageRows.map((image) => [image.id, image]));
     for (const image of imageRows) {
-      if (!latestImageByProject.has(image.projectId)) {
-        latestImageByProject.set(image.projectId, image.id);
-        latestImagePathByProject.set(image.projectId, image.storagePath);
-      }
+      if (latestImageByProject.has(image.projectId)) continue;
+      // The first wanted image that still exists on this article, else the newest.
+      const wanted = (wantedByProject.get(image.projectId) ?? [])
+        .map((id) => byId.get(id))
+        .find((candidate) => candidate?.projectId === image.projectId);
+      const pick = wanted ?? image;
+      latestImageByProject.set(image.projectId, pick.id);
+      latestImagePathByProject.set(image.projectId, pick.storagePath);
     }
   }
 

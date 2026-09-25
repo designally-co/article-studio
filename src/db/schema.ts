@@ -198,6 +198,12 @@ export type ProjectInputs = {
    */
   coverCredits?: Record<string, CoverCredit>;
   /**
+   * The image the Hub received as the cover on the last publish. The library
+   * shows it for a published article: the choice here may have moved on since,
+   * and the thumbnail should be the picture readers see.
+   */
+  publishedCoverImageId?: string;
+  /**
    * When reference photographs were first searched for on this article, as an
    * ISO time.
    *
