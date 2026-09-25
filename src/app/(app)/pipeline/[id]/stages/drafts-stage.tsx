@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { deDash } from "@/lib/text";
 import { Markdown } from "@/components/markdown";
 import { streamNdjson } from "@/lib/ndjson-client";
 import { ApiNotReady, RAIL_COLUMN, RAIL_CONTENT, RAIL_GRID, StageShell } from "./stage-shell";
@@ -125,7 +126,10 @@ export function DraftsStage({
       )) {
         if (event.t === "delta" && event.d) {
           content += event.d;
-          setDraft((current) => ({ ...current, contentMd: content }));
+          // Shown cleaned as it arrives. The server saves the cleaned text and
+          // sends it at the end; until then the screen showed the model's raw
+          // dashes, which is what an editor watching a draft being written saw.
+          setDraft((current) => ({ ...current, contentMd: deDash(content) }));
         } else if (event.t === "done") {
           // The server may return a sanitized final (e.g. em dashes removed); adopt it.
           if (event.content != null) content = event.content;
@@ -189,7 +193,10 @@ export function DraftsStage({
       )) {
         if (event.t === "delta" && event.d) {
           content += event.d;
-          setDraft((current) => ({ ...current, contentMd: content }));
+          // Shown cleaned as it arrives. The server saves the cleaned text and
+          // sends it at the end; until then the screen showed the model's raw
+          // dashes, which is what an editor watching a draft being written saw.
+          setDraft((current) => ({ ...current, contentMd: deDash(content) }));
         } else if (event.t === "done") {
           if (event.content != null) content = event.content;
           setDraft((current) => ({ ...current, contentMd: content }));

@@ -1,6 +1,7 @@
 "use server";
 
 import { eq } from "drizzle-orm";
+import { deDash } from "@/lib/text";
 import { getDb } from "@/db";
 import { projects } from "@/db/schema";
 import { requireUser } from "@/lib/session";
@@ -22,8 +23,9 @@ export async function ensurePublishDekAction(projectId: string): Promise<string 
   const loaded = await loadProject(projectId);
   if (!loaded) return undefined;
 
+  // A dek cached before dashes were cleaned from it is cleaned on the way out.
   const cached = loaded.project.inputs.publishDek?.trim();
-  if (cached) return cached;
+  if (cached) return deDash(cached);
 
   const title = loaded.project.selectedTopic?.title?.trim();
   const draftMarkdown = (loaded.drafts.find((d) => d.isSelected) ?? loaded.drafts[0])?.contentMd?.trim();

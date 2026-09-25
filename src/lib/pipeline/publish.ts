@@ -14,6 +14,7 @@ import { fetchableImageUrls, resolveImage } from "@/lib/image/storage";
 import { sweepPublishedReferences } from "@/lib/image/sweep-references";
 import { stripTitleHeading } from "@/lib/markdown";
 import { splitSourcesSection } from "@/lib/outline";
+import { deDash } from "@/lib/text";
 import { getModels, runText } from "@/lib/anthropic";
 import type { PublishToHubResult } from "./views";
 
@@ -34,13 +35,18 @@ export async function generateDek(
       model: drafting,
       task:
         "Write a single-sentence dek (subtitle) for this article: under 25 words, plain, " +
-        "no surrounding quotes, framing what the reader gains. Return ONLY the sentence.\n\n" +
+        "no surrounding quotes, framing what the reader gains. Never use em dashes or en dashes " +
+        "as punctuation; use a comma or colon instead. Return ONLY the sentence.\n\n" +
         `Title: ${title}\n\n${bodyMarkdown.slice(0, 4000)}`,
       maxTokens: 120,
       projectId,
       stage: "publish-dek",
     });
-    return text.trim().replace(/^["']+|["']+$/g, "") || undefined;
+    /* CLEANED, like the article. This is its own call, outside the system
+       prompt that carries the no-dash rule, and nothing cleaned what it wrote —
+       so the one sentence set in large type under the headline was the one
+       place an em dash still reached the Hub, and from there its Thai. */
+    return deDash(text.trim().replace(/^["']+|["']+$/g, "")) || undefined;
   } catch {
     return undefined;
   }
@@ -102,9 +108,9 @@ export async function publishToHubCore(
 
   // Reuse the dek cached when the Publish stage opened; generate on the fly only
   // if it's somehow missing. Optional — never block publishing on it.
-  const summary =
-    loaded.project.inputs.publishDek?.trim() ||
-    (await generateDek(projectId, title, bodyMarkdown));
+  // Cleaned here too: a dek cached before the fix still carries its dash.
+  const cachedDek = loaded.project.inputs.publishDek?.trim();
+  const summary = cachedDek ? deDash(cachedDek) : await generateDek(projectId, title, bodyMarkdown);
 
   // Put the cover in the Hub's media library. Optional: a failed or absent
   // image never blocks publishing — it comes back as a warning instead.

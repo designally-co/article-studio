@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { articlesStartedBefore, coverImage, loadProject } from "@/lib/projects";
 import { rotateAspectRatio } from "@/lib/autopilot/views";
 import { publishMetadata } from "@/lib/publish-meta";
+import { deDash } from "@/lib/text";
 import { isAnthropicConfigured } from "@/lib/anthropic";
 import { isHubConfigured } from "@/lib/hub";
 import { imageGenerationOptions } from "@/lib/image/registry";
@@ -170,7 +171,7 @@ export default async function PipelinePage({
             coverAspectRatio={coverAspectRatio}
             coverImageId={cover?.id ?? null}
             coverCredits={loaded.project.inputs.coverCredits ?? {}}
-            initialDek={loaded.project.inputs.publishDek ?? null}
+            initialDek={loaded.project.inputs.publishDek ? deDash(loaded.project.inputs.publishDek) : null}
             published={published}
             images={loaded.images.map((img) => ({
               id: img.id,
