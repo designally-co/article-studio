@@ -60,7 +60,62 @@ async function bumpStage(projectId: string, to: number) {
   await db.update(projects).set({ stage: to, updatedAt: new Date() }).where(eq(projects.id, projectId));
 }
 
-export async function preparePlanCore(projectId: string): Promise<{ ok: true }> {
+/**
+ * WITH SEARCH, NOW THAT THERE IS TIME FOR IT. The note above was written for
+ * Vercel's 60 seconds. Article Studio has run on the office NAS since 15 Sep
+ * 2026, where a request is not cut off, so an editor's plan searches again:
+ * the sources come back as the specific pages that were actually read — a
+ * studio's case study rather than the studio's homepage — which is also what
+ * the image stage looks for pictures in.
+ *
+ * Still not on Vercel (the rollback target), and not in routines, whose steps
+ * keep a 45-second deadline sized for Vercel (see `STEP_DEADLINE_MS`). If the
+ * searching call fails or runs long, the plan is written without search, as
+ * before.
+ */
+const SEARCH_PLAN_TIMEOUT_MS = 100_000;
+const SEARCH_USES = 4;
+
+/**
+ * Homepages and listing pages are not sources for a specific claim, and they
+ * have no picture of the work either. Measured on the Hub's ten latest
+ * articles: 22 of 58 references were homepages and most of the rest were
+ * `/work`, `/articles` or docs indexes.
+ */
+const LISTING_SEGMENTS = new Set([
+  "work", "projects", "portfolio", "blog", "news", "articles", "insights", "stories",
+  "journal", "press", "newsroom", "category", "categories", "tag", "tags", "section",
+  "topics", "search", "resources", "resource-library", "library",
+]);
+
+export function isSpecificPage(raw: string): boolean {
+  try {
+    const url = new URL(raw);
+    if (["q", "s", "query"].some((key) => url.searchParams.has(key))) return false;
+    const segments = url.pathname.split("/").filter(Boolean).map((segment) => segment.toLowerCase());
+    if (segments.length === 0) return false;
+    // `/work`, `/articles/`, `/insights/news` …
+    if (LISTING_SEGMENTS.has(segments[segments.length - 1])) return false;
+    // `/section/liquid-death`, `/tag/branding` — a listing named after its subject.
+    if (segments.length === 2 && ["section", "category", "categories", "tag", "tags", "topics"].includes(segments[0])) {
+      return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** The specific pages, when there are at least two of them; otherwise what there is. */
+function specificSources(sources: OutlineJson["sources"]): OutlineJson["sources"] {
+  const specific = (sources ?? []).filter((source) => isSpecificPage(source.url));
+  return specific.length >= 2 ? specific : sources;
+}
+
+export async function preparePlanCore(
+  projectId: string,
+  options?: { webSearch?: boolean },
+): Promise<{ ok: true }> {
   const loaded = await loadProject(projectId);
   if (!loaded) throw new Error("Project not found");
   /* Already planned — a retry after a failed run, or a second visit. Just
@@ -100,9 +155,32 @@ export async function preparePlanCore(projectId: string): Promise<{ ok: true }> 
       required: ["title", "introAngle", "sections", "sources", "cta"],
       additionalProperties: false,
   };
+  let searched: OutlineJson | null = null;
+  if (options?.webSearch !== false && !process.env.VERCEL) {
+    try {
+      ({ data: searched } = await runJson<OutlineJson>({
+        model: research,
+        system: buildResearchSystem(),
+        cache: false,
+        task:
+          `${task}\n\nUse web search to find and read the specific pages you cite, and copy their URLs exactly from the results. ` +
+          "For each named studio, brand, typeface or piece of work, look for the maker's own page about it (for example \"<studio> <project> case study\").",
+        webSearch: { maxUses: SEARCH_USES },
+        schema,
+        maxTokens: 3000,
+        allowHeal: false,
+        timeoutMs: SEARCH_PLAN_TIMEOUT_MS,
+        projectId,
+        stage: "article_research_plan_search",
+      }));
+    } catch {
+      searched = null;
+    }
+  }
+
   /* Source-free by design — see the note on PLAN_TIMEOUT_MS. The task tells
      the writer not to claim current facts it has no source for. */
-  const { data } = await runJson<OutlineJson>({
+  const { data } = searched ? { data: searched } : await runJson<OutlineJson>({
     model: research,
     system: buildResearchSystem(),
     cache: false,
@@ -123,7 +201,7 @@ export async function preparePlanCore(projectId: string): Promise<{ ok: true }> 
     stage: "article_research_plan",
   });
 
-  const markdown = outlineToMarkdown(data, true);
+  const markdown = outlineToMarkdown({ ...data, sources: specificSources(data.sources) }, true);
   const db = await getDb();
   await db.update(projects).set({
     inputs: {

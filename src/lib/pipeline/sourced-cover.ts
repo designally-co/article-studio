@@ -5,6 +5,7 @@ import { imageReferences, images, projects, type CoverCredit } from "@/db/schema
 import { loadStoredImage, saveGeneratedImage, saveImage } from "@/lib/image/storage";
 import { imageSize } from "@/lib/image/dimensions";
 import { downloadImage, USER_AGENT } from "@/lib/image/reference-sources";
+import { COVER_MIN_WIDTH } from "@/lib/image/reference-policy";
 import type { GeneratedImageView } from "./views";
 
 /**
@@ -150,6 +151,17 @@ export async function coverFromReferenceCore(
     ? { data: fullSize.data, mimeType: fullSize.mimeType }
     : await loadStoredImage(reference.storagePath);
   if (!stored) throw new Error("That photograph could not be read. Find it again, or upload it.");
+
+  /* A COVER HAS A STANDARD. Checked on the bytes that would go up — the
+     full-size Unsplash original where there is one, the reference otherwise —
+     so a 1200px share card is refused here whoever asks: the stage hides the
+     button for it, and a routine that tries falls back to generating from it. */
+  const width = fullSize?.width ?? imageSize(stored.data)?.width ?? reference.width;
+  if (width < COVER_MIN_WIDTH) {
+    throw new Error(
+      `This picture is ${width}px wide, and a cover needs at least ${COVER_MIN_WIDTH}px. Generate from it instead.`,
+    );
+  }
 
   /* Stored the way a generated cover is — WebP, at most the delivery width —
      so the Hub receives the same kind of file either way. Where sharp cannot

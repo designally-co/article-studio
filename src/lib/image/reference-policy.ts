@@ -22,3 +22,16 @@
  * fits one row under the dock on a desktop and two on a phone.
  */
 export const MAX_FOUND_REFERENCES = 8;
+
+/**
+ * The narrowest picture that may go up as the cover as it is.
+ *
+ * The width the Hub's covers are delivered at (`DELIVERY_MAX_WIDTH` in
+ * storage.ts), so a picture used as it is is never the softest thing on the
+ * page. Measured on the Hub's latest articles, most cited pages lead with a
+ * 1200×630 share card: those are for generating from, not for publishing. An
+ * Unsplash photograph is exempt at the stage because its full-size original is
+ * fetched when it becomes the cover; the server checks the bytes that actually
+ * go up either way.
+ */
+export const COVER_MIN_WIDTH = 1600;

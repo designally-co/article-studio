@@ -591,7 +591,8 @@ async function advance(run: ClaimedRun, routine: Routine) {
 
   switch (run.step) {
     case "plan":
-      await preparePlanCore(projectId);
+      // Without search: a routine step has 45 seconds (STEP_DEADLINE_MS).
+      await preparePlanCore(projectId, { webSearch: false });
       next = "draft";
       break;
     case "draft":
