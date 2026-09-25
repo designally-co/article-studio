@@ -9,12 +9,16 @@
  */
 
 /**
- * How many references one search may attach to an article.
+ * How many references one article may hold.
  *
- * Well below what the editing models accept (fourteen and ten). Those models
- * preserve what they are shown, so a large set does not ground the image, it
- * dilutes it: every extra reference is another subject competing to survive
- * into the frame. Four is enough to stop a cover reading as generic, and few
- * enough that an editor can look at each one and decide whether it belongs.
+ * NOT how many are sent to a model. The stage sends ONE — the chosen
+ * photograph — because the editing models preserve what they are shown, and a
+ * set of four unrelated subjects dilutes the frame rather than grounding it.
+ * This is the size of the set the editor chooses from.
+ *
+ * Eight since the cited pages each give up to three pictures (see
+ * `article-sources.ts`): the work from two or three angles, across two or three
+ * pages, is a real choice, and it is still few enough to look at each one. It
+ * fits one row under the dock on a desktop and two on a phone.
  */
-export const MAX_FOUND_REFERENCES = 4;
+export const MAX_FOUND_REFERENCES = 8;

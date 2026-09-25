@@ -89,13 +89,35 @@ function safeHttpUrl(value: string): string | null {
  * links on names and claims, and those belong in the prose where the writer
  * put them.
  */
+const SOURCES_SECTION = /\n#{1,6}[ \t]*(?:sources|references)[ \t]*\n([\s\S]*?)(?=\n#{1,6}[ \t]|$)/i;
+
+/**
+ * The same markdown with one more link at the end of its Sources list, or a
+ * Sources list holding just that link if it had none.
+ *
+ * For the Publish stage's preview, so a cover's credit is seen where it will
+ * appear — `publishToHubCore` adds it to the references it sends, and the
+ * preview draws the references from this markdown.
+ */
+export function withReference(markdown: string, reference: { label: string; url: string }): string {
+  const label = reference.label.replace(/[[\]]/g, "").trim();
+  const url = reference.url.trim();
+  if (!label || !/^https?:\/\//.test(url)) return markdown;
+  const line = `- [${label}](${url})`;
+  const section = markdown.match(SOURCES_SECTION);
+  if (!section || section.index === undefined) return `${markdown.trimEnd()}\n\n## Sources\n\n${line}\n`;
+  if (splitSourcesSection(markdown).references.some((existing) => existing.url === url && existing.label === label)) {
+    return markdown;
+  }
+  const end = section.index + section[0].length;
+  return `${markdown.slice(0, end).trimEnd()}\n${line}\n${markdown.slice(end)}`;
+}
+
 export function splitSourcesSection(markdown: string): {
   body: string;
   references: { label: string; url: string }[];
 } {
-  const section = markdown.match(
-    /\n#{1,6}[ \t]*(?:sources|references)[ \t]*\n([\s\S]*?)(?=\n#{1,6}[ \t]|$)/i,
-  );
+  const section = markdown.match(SOURCES_SECTION);
   if (!section || section.index === undefined) return { body: markdown, references: [] };
 
   const references: { label: string; url: string }[] = [];

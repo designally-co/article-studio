@@ -1,6 +1,7 @@
 import "server-only";
 import { createHash } from "node:crypto";
 import type { ReferenceOrigin } from "@/db/schema";
+import { publicFetch, readCapped } from "@/lib/net/public-fetch";
 import { imageSize } from "./dimensions";
 
 /**
@@ -77,7 +78,7 @@ const IMAGE_TIMEOUT_MS = 10_000;
 const PREVIEW_TIMEOUT_MS = 6_000;
 const SEARCH_TIMEOUT_MS = 8_000;
 
-const USER_AGENT =
+export const USER_AGENT =
   "Mozilla/5.0 (compatible; DesignallyContentStudio/1.0; +https://designally.co)";
 
 const ALLOWED_TYPES: Record<string, "png" | "jpg"> = {
@@ -132,41 +133,42 @@ function isPublicHttpsUrl(raw: string): URL | null {
   return url;
 }
 
-/** Download one image, refusing anything that is not a usable photograph. */
-async function downloadImage(rawUrl: string): Promise<{
+/**
+ * Download one image, refusing anything that is not a usable photograph.
+ *
+ * Exported because a cover can now come from a page the article cites
+ * (`article-sources.ts`), and that path must refuse the same things.
+ *
+ * THROUGH `publicFetch`, which resolves the name and re-checks every redirect.
+ * This used `redirect: "follow"`, which took a public URL's 302 to wherever it
+ * pointed, private addresses included — the gap the string check above says it
+ * does not cover.
+ */
+export async function downloadImage(rawUrl: string): Promise<{
   data: Buffer;
   mimeType: string;
   ext: "png" | "jpg";
   width: number;
   height: number;
 } | null> {
-  const url = isPublicHttpsUrl(rawUrl);
-  if (!url) return null;
+  if (!isPublicHttpsUrl(rawUrl)) return null;
 
-  let response: Response;
-  try {
-    response = await fetch(url, {
-      headers: { "user-agent": USER_AGENT, accept: "image/*" },
-      redirect: "follow",
-      signal: AbortSignal.timeout(IMAGE_TIMEOUT_MS),
-      cache: "no-store",
-    });
-  } catch {
-    return null;
-  }
-  if (!response.ok) return null;
+  const response = await publicFetch(rawUrl, {
+    accept: "image/*",
+    userAgent: USER_AGENT,
+    timeoutMs: IMAGE_TIMEOUT_MS,
+  });
+  if (!response?.ok) return null;
 
   // The declared type first — it is free, and it rejects an HTML error page
   // served with a 200 before any bytes are read.
   const declared = (response.headers.get("content-type") ?? "").split(";")[0].trim().toLowerCase();
   const ext = ALLOWED_TYPES[declared];
   if (!ext) return null;
-  const declaredLength = Number(response.headers.get("content-length") ?? "0");
-  if (declaredLength > MAX_IMAGE_BYTES) return null;
 
-  const data = Buffer.from(await response.arrayBuffer());
-  // Checked again after reading: content-length is a claim, not a guarantee.
-  if (data.length === 0 || data.length > MAX_IMAGE_BYTES) return null;
+  // Read against the cap as a stream: content-length is a claim, not a guarantee.
+  const data = await readCapped(response, MAX_IMAGE_BYTES);
+  if (!data || data.length === 0) return null;
 
   // The bytes must actually be an image this app can read, whatever the header
   // said. This is also what filters out an SVG or a GIF wearing another type.
@@ -185,26 +187,20 @@ async function downloadImage(rawUrl: string): Promise<{
  * cannot be fetched here is simply left out of the pool.
  */
 export async function downloadPreview(rawUrl: string): Promise<{ base64: string; mediaType: string } | null> {
-  const url = isPublicHttpsUrl(rawUrl);
-  if (!url) return null;
-  try {
-    const response = await fetch(url, {
-      // Named formats, not `image/*`: an image CDN that negotiates will answer
-      // `image/*` with AVIF, which the Messages API does not read.
-      headers: { "user-agent": USER_AGENT, accept: "image/jpeg,image/png,image/webp;q=0.9" },
-      redirect: "follow",
-      signal: AbortSignal.timeout(PREVIEW_TIMEOUT_MS),
-      cache: "no-store",
-    });
-    if (!response.ok) return null;
-    const mediaType = (response.headers.get("content-type") ?? "").split(";")[0].trim().toLowerCase();
-    if (!PREVIEW_TYPES.has(mediaType)) return null;
-    const data = Buffer.from(await response.arrayBuffer());
-    if (data.length === 0 || data.length > MAX_PREVIEW_BYTES) return null;
-    return { base64: data.toString("base64"), mediaType };
-  } catch {
-    return null;
-  }
+  if (!isPublicHttpsUrl(rawUrl)) return null;
+  // Named formats, not `image/*`: an image CDN that negotiates will answer
+  // `image/*` with AVIF, which the Messages API does not read.
+  const response = await publicFetch(rawUrl, {
+    accept: "image/jpeg,image/png,image/webp;q=0.9",
+    userAgent: USER_AGENT,
+    timeoutMs: PREVIEW_TIMEOUT_MS,
+  });
+  if (!response?.ok) return null;
+  const mediaType = (response.headers.get("content-type") ?? "").split(";")[0].trim().toLowerCase();
+  if (!PREVIEW_TYPES.has(mediaType)) return null;
+  const data = await readCapped(response, MAX_PREVIEW_BYTES);
+  if (!data || data.length === 0) return null;
+  return { base64: data.toString("base64"), mediaType };
 }
 
 /** Fetch a kept result full-size and make it something that can be attached. */

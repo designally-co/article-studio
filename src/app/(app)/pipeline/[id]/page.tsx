@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { coverImage, loadProject } from "@/lib/projects";
+import { articlesStartedBefore, coverImage, loadProject } from "@/lib/projects";
+import { rotateAspectRatio } from "@/lib/autopilot/views";
 import { publishMetadata } from "@/lib/publish-meta";
 import { isAnthropicConfigured } from "@/lib/anthropic";
 import { isHubConfigured } from "@/lib/hub";
@@ -66,9 +67,18 @@ export default async function PipelinePage({
   // which one — shared with publishing, which used to decide separately and
   // disagree.
   const cover = coverImage(loaded);
+  /* THE SHAPE AN UNCHOSEN COVER STARTS AT. It was always 1:1, so a Hub page of
+     hand-made articles was a column of squares, while routines already rotated
+     wide, classic, portrait and square. The same rotation now applies here, by
+     the article's place among all of them. A shape the editor has generated at
+     is saved on the article and wins. A photograph used as the cover as it is
+     keeps its own shape and is not affected by any of this. */
+  const imageAspectRatio =
+    loaded.project.inputs.imageAspectRatio ??
+    rotateAspectRatio(null, await articlesStartedBefore(loaded.project.createdAt));
   // Cover aspect ratio (width / height) — drives the preview hero's 50% overflow.
   const coverAspectRatio = parseAspectRatio(
-    cover?.aspectRatio ?? loaded.project.inputs.imageAspectRatio,
+    cover?.aspectRatio ?? imageAspectRatio,
   );
   const finalizeView: "images" | "complete" =
     viewParam === "images" || viewParam === "complete"
@@ -159,6 +169,7 @@ export default async function PipelinePage({
             coverImageUrl={cover ? `/api/images/${cover.id}` : null}
             coverAspectRatio={coverAspectRatio}
             coverImageId={cover?.id ?? null}
+            coverCredits={loaded.project.inputs.coverCredits ?? {}}
             initialDek={loaded.project.inputs.publishDek ?? null}
             published={published}
             images={loaded.images.map((img) => ({
@@ -185,7 +196,7 @@ export default async function PipelinePage({
                 ? `${loaded.project.inputs.imageProvider}::${loaded.project.inputs.imageApiKeyId ?? ""}`
                 : "",
               count: loaded.project.inputs.imageCount ?? 1,
-              aspectRatio: loaded.project.inputs.imageAspectRatio ?? "1:1",
+              aspectRatio: imageAspectRatio,
             }}
             options={imageOptions}
             initialView={finalizeView}

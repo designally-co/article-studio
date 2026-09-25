@@ -1,5 +1,5 @@
 import "server-only";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import { imageReferences, images, projects } from "@/db/schema";
 import { loadProject } from "@/lib/projects";
@@ -10,6 +10,7 @@ import type { ImageAspectRatio, ReferenceImageInput } from "@/lib/image/provider
 import { IMAGE_ASPECT_RATIOS } from "@/lib/image/providers";
 import { findRelatedReferences, type RelatedReferenceSearch } from "@/lib/image/reference-search";
 import { MAX_FOUND_REFERENCES } from "@/lib/image/reference-policy";
+import { citedPages, findArticleSourceImages } from "@/lib/image/article-sources";
 import type {
   GeneratedImageView,
   GenerationRunResult,
@@ -74,10 +75,15 @@ export async function findReferenceImagesCore(
   if (!loaded) throw new Error("Project not found.");
 
   const db = await getDb();
+  /* WITHOUT THE SWEPT ONES. A published article's references keep their rows
+     but lose their files (see `sweepPublishedReferences`), and the page already
+     leaves them out. Counted here they filled the four places with pictures that
+     no longer exist: the search came back with four broken thumbnails and "remove
+     one to look for more", on an article whose editor could see none. */
   const existing = await db
     .select()
     .from(imageReferences)
-    .where(eq(imageReferences.projectId, projectId));
+    .where(and(eq(imageReferences.projectId, projectId), isNull(imageReferences.sweptAt)));
   const space = MAX_FOUND_REFERENCES - existing.length;
   if (space <= 0) {
     return {
@@ -112,56 +118,78 @@ export async function findReferenceImagesCore(
     })
     .where(eq(projects.id, projectId));
 
-  const search = await findRelatedReferences({
-    projectId,
-    title,
-    angle: loaded.project.selectedTopic?.angle,
-    // The opening says what the article is about; the whole of it is not needed
-    // to plan a photo search, and every token is inside the same sixty seconds.
-    article: article.slice(0, 3000),
-    seedQuery: options?.query,
-    limit: room,
-  });
+  /* TWO PLACES AT ONCE. The pages the article cites come first: their lead
+     image is usually the work itself, photographed by the studio that made it,
+     which is what a good design publication runs. The photo libraries fill
+     what is left. Side by side because both live inside the same sixty
+     seconds; a page already attached as a reference is not fetched again. */
+  const [fromSources, search] = await Promise.all([
+    findArticleSourceImages(article, {
+      limit: room,
+      exclude: new Set(existing.map((row) => row.sourceUrl).filter((url): url is string => !!url)),
+    }).catch(() => []),
+    findRelatedReferences({
+      projectId,
+      title,
+      angle: loaded.project.selectedTopic?.angle,
+      // The opening says what the article is about; the whole of it is not needed
+      // to plan a photo search, and every token is inside the same sixty seconds.
+      article: article.slice(0, 3000),
+      seedQuery: options?.query,
+      limit: room,
+    }),
+  ]);
+  const candidates = [...fromSources, ...search.candidates].slice(0, room);
 
-  const saved: UploadedReferenceView[] = [];
-  for (const candidate of search.candidates) {
-    // Normalised the same way an upload is, and for the same reason: the
-    // providers get one predictable, metadata-free format. If sharp cannot
-    // load, the original bytes are still a valid image.
-    let data = candidate.data;
-    let mimeType = candidate.mimeType;
-    let ext = candidate.ext;
-    try {
-      const sharp = await loadSharp();
-      data = await sharp(candidate.data).rotate().png().toBuffer();
-      mimeType = "image/png";
-      ext = "png";
-    } catch {
-      // sharp is unavailable on this runtime.
-    }
-    const { storagePath } = await saveImage({ data, mimeType, ext });
-    const [row] = await db
-      .insert(imageReferences)
-      .values({
-        projectId,
-        storagePath,
-        mimeType,
-        originalName: candidate.originalName,
-        width: candidate.width,
-        height: candidate.height,
-        origin: candidate.origin,
-        sourceUrl: candidate.sourceUrl,
-        sourceName: candidate.sourceName,
-        license: candidate.license,
-        attribution: candidate.attribution,
-      })
-      .returning();
-    saved.push(referenceView(row));
-  }
+  /* Side by side, in the order found. Up to eight pictures, each re-encoded
+     and uploaded, would otherwise queue behind one another inside the same
+     sixty seconds the search has already spent most of. */
+  const saved: UploadedReferenceView[] = await Promise.all(
+    candidates.map(async (candidate) => {
+      // Normalised the same way an upload is, and for the same reason: the
+      // providers get one predictable, metadata-free format. If sharp cannot
+      // load, the original bytes are still a valid image.
+      let data = candidate.data;
+      let mimeType = candidate.mimeType;
+      let ext = candidate.ext;
+      try {
+        const sharp = await loadSharp();
+        data = await sharp(candidate.data).rotate().png().toBuffer();
+        mimeType = "image/png";
+        ext = "png";
+      } catch {
+        // sharp is unavailable on this runtime.
+      }
+      const { storagePath } = await saveImage({ data, mimeType, ext });
+      const [row] = await db
+        .insert(imageReferences)
+        .values({
+          projectId,
+          storagePath,
+          mimeType,
+          originalName: candidate.originalName,
+          width: candidate.width,
+          height: candidate.height,
+          origin: candidate.origin,
+          sourceUrl: candidate.sourceUrl,
+          sourceName: candidate.sourceName,
+          license: candidate.license,
+          attribution: candidate.attribution,
+        })
+        .returning();
+      return referenceView(row);
+    }),
+  );
 
   return {
     references: [...existing.map(referenceView), ...saved],
-    note: saved.length > 0 ? undefined : searchNote(search),
+    note:
+      saved.length > 0
+        ? undefined
+        : // Said first when it applies: the cited pages are where the best
+          // picture would have come from, and an editor can fix that by citing
+          // the project's own page rather than a site's front door.
+          `${citedPages(article).length > 0 ? "None of the pages this article cites had a picture to offer. " : ""}${searchNote(search)}`,
   };
 }
 

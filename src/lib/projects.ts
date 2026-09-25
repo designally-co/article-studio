@@ -1,5 +1,5 @@
 import "server-only";
-import { and, eq, asc, desc, isNull } from "drizzle-orm";
+import { and, eq, asc, desc, isNull, lt, count } from "drizzle-orm";
 import { getDb } from "@/db";
 import {
   projects,
@@ -101,6 +101,20 @@ export function coverImage(
 ): LoadedProject["images"][number] | undefined {
   const chosen = p.project.inputs.coverImageId;
   return p.images.find((image) => image.id === chosen) ?? p.images[0];
+}
+
+/**
+ * How many articles were started before this one — the place in the cover-shape
+ * rotation of an article whose shape nobody has chosen.
+ *
+ * Counted from creation, so an article keeps its place however many times the
+ * stage is opened, and needs nothing written on a page load. Once an image is
+ * generated the shape used is saved on the article and this stops mattering.
+ */
+export async function articlesStartedBefore(createdAt: Date): Promise<number> {
+  const db = await getDb();
+  const [row] = await db.select({ n: count() }).from(projects).where(lt(projects.createdAt, createdAt));
+  return Number(row?.n ?? 0);
 }
 
 export function pipelineContext(p: LoadedProject): PipelineContext {
