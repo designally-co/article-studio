@@ -484,8 +484,8 @@ async function judgeSourcePictures(
  *
  * THEN JUDGED, and only then cut to `limit`, so a rejected picture never takes
  * a place a good one could have had. What shows the article's own subject goes
- * first — the autopilot, which asks for one, uses that one as the cover as it
- * is (see `runReferenceStep`). Where the judge cannot run, only the pages'
+ * first — the autopilot takes the first one as the cover, upscaled if it must
+ * be (see `runReferenceStep`). Where the judge cannot run, only the pages'
  * lead images are kept, as `related`: the publisher chose those, and nothing
  * unjudged is ever offered as the article's subject.
  */
