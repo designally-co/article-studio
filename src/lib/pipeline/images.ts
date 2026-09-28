@@ -78,8 +78,15 @@ export async function findReferenceImagesCore(
   projectId: string,
   options?: {
     query?: string;
-    /** At most this many new photographs. The autopilot asks for one. */
+    /** At most this many new photographs. */
     limit?: number;
+    /**
+     * At most ONE from the cited pages and ONE from the photo libraries, rather
+     * than the cited pages filling every place first. The autopilot asks for
+     * this: it tries the page's own picture as the cover, and needs a library
+     * photograph standing by for when that picture is not good enough.
+     */
+    oneOfEach?: boolean;
   }
 ): Promise<FoundReferences> {
   const loaded = await loadProject(projectId);
@@ -153,7 +160,11 @@ export async function findReferenceImagesCore(
       limit: room,
     }),
   ]);
-  const candidates = [...fromSources, ...search.candidates].slice(0, room);
+  const candidates = (
+    options?.oneOfEach
+      ? [fromSources[0], search.candidates[0]].filter((candidate) => candidate !== undefined)
+      : [...fromSources, ...search.candidates]
+  ).slice(0, room);
 
   /* Side by side, in the order found. Up to eight pictures, each re-encoded
      and uploaded, would otherwise queue behind one another inside the same

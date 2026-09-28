@@ -449,7 +449,8 @@ async function runPromptStep(projectId: string, count: number) {
 }
 
 /**
- * Step two: find the photograph, then write the prompt again having seen it.
+ * Step two: find the photograph, and make it the cover where it is good
+ * enough. Otherwise write the prompt again having seen it.
  *
  * The second draft is the point of the whole exercise. Without it "match the
  * reference" is an instruction with nothing behind it — the writer knows a
@@ -458,35 +459,47 @@ async function runPromptStep(projectId: string, count: number) {
  * leaving `referenceId` unset.
  */
 async function runReferenceStep(projectId: string, count: number) {
-  const options = await imageGenerationOptions();
-  if (options.length === 0) return;
   const { work } = await readImageWork(projectId);
   const found = await findReferenceImagesCore(projectId, {
     query: work?.photoQuery ?? "",
-    /* One photograph. The run only ever sends the first, and every one kept is
-       a full-size download inside a step with a deadline. The search ranks best
-       first, so the one kept is the closest. */
-    limit: 1,
+    /* Two photographs at most: the best picture from the pages the article
+       cites, and the best from the photo libraries. Every one kept is a
+       full-size download inside a step with a deadline. */
+    limit: 2,
+    oneOfEach: true,
   });
 
-  /* THE WORK ITSELF, WHEN A CITED PAGE HAS IT. A picture judged to show the
-     very thing the article is about becomes the cover as it is, credited in
-     References — the user's decision (25 Sep 2026) for routines — upscaled
-     first when it is narrower than the cover width. Anything that goes wrong
-     here, a picture too small even to upscale included, falls through to
-     generating from the picture instead. */
-  const subjectId = found.subjectIds?.[0];
-  if (subjectId) {
+  /* A REAL PHOTOGRAPH BEFORE A GENERATED ONE — the user's decision (28 Sep
+     2026): generated covers read as stock. In this order:
+
+       1. the picture from a cited page — the work itself, as its studio
+          published it — upscaled to the cover width when it is narrower;
+       2. only when that one is bad, the library photograph (Unsplash, or
+          Openverse where Unsplash has nothing);
+       3. only when both are, generate, with one of them as the reference.
+
+     "Bad" is whatever `coverFromReferenceCore` refuses: none was found, the
+     judge ruled it off the subject (so it never came back), it is too small
+     even to upscale, or its file could not be read. Each is credited in
+     References, as a hand-picked one is. */
+  const fromPage =
+    found.references.find((item) => found.subjectIds?.includes(item.id)) ??
+    found.references.find((item) => item.origin === "article_source");
+  const fromLibrary = found.references.find((item) => item.origin === "open_license");
+  for (const candidate of [fromPage, fromLibrary]) {
+    if (!candidate) continue;
     try {
-      const { image } = await coverFromReferenceCore(projectId, subjectId);
-      await writeImageWork(projectId, { referenceId: subjectId, sourcedCoverId: image.id });
+      const { image } = await coverFromReferenceCore(projectId, candidate.id);
+      await writeImageWork(projectId, { referenceId: candidate.id, sourcedCoverId: image.id });
       return;
     } catch {
-      // Generate from it below, as from any reference.
+      // Not good enough for the cover; try the next, or generate below.
     }
   }
 
-  const reference = found.references[0];
+  const options = await imageGenerationOptions();
+  if (options.length === 0) return;
+  const reference = fromPage ?? fromLibrary ?? found.references[0];
   const option = (reference && options.find((o) => o.capabilities.referenceImages)) ?? options[0];
   if (!reference || !option.capabilities.referenceImages) {
     await writeImageWork(projectId, { optionId: option.optionId });
