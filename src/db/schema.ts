@@ -145,8 +145,9 @@ export type CoverCredit = {
   referenceId: string;
   origin: ReferenceOrigin;
   license: string | null;
+  /** Set on covers made before 28 Sep 2026, when permission was still asked for. */
   rightsConfirmedAt?: string;
-  /** Who confirmed, by email. */
+  /** Who confirmed, by email. Historical, as above. */
   rightsConfirmedBy?: string;
 };
 
@@ -190,10 +191,7 @@ export type ProjectInputs = {
    *
    * A sourced cover is someone else's picture, and the article says whose in
    * its References — `label` is the line a reader sees and `url` where it
-   * points, both drafted from the source and editable. `rightsConfirmedAt` is
-   * the editor saying the press-kit terms allow it or that permission was
-   * given; an open-licence photograph needs no such word, since its licence is
-   * the permission. Held here rather than in a column because it is a handful
+   * points, both drafted from the source and editable. Held here rather than in a column because it is a handful
    * of strings per article and only the image stage and publishing read it.
    */
   coverCredits?: Record<string, CoverCredit>;

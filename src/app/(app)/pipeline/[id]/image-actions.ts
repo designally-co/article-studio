@@ -149,20 +149,16 @@ export async function setCoverImageAction(projectId: string, imageId: string): P
 }
 
 /**
- * Make a reference photograph the cover as it is. Session-checked wrapper; the
- * rules — including why `rightsConfirmed` is required for anything without an
- * open licence — live in @/lib/pipeline/sourced-cover.
+ * Make a reference photograph the cover, upscaled if it is narrower than the
+ * cover width. Session-checked wrapper; the rules live in
+ * @/lib/pipeline/sourced-cover.
  */
 export async function coverFromReferenceAction(
   projectId: string,
-  referenceId: string,
-  rightsConfirmed: boolean
+  referenceId: string
 ): Promise<{ image: GeneratedImageView; credit: CoverCredit }> {
-  const user = await requireUser();
-  const result = await coverFromReferenceCore(projectId, referenceId, {
-    rightsConfirmed: rightsConfirmed === true,
-    confirmedBy: user.email,
-  });
+  await requireUser();
+  const result = await coverFromReferenceCore(projectId, referenceId);
   revalidatePath(`/pipeline/${projectId}`);
   return result;
 }
