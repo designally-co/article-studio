@@ -35,3 +35,13 @@ export const MAX_FOUND_REFERENCES = 8;
  * go up either way.
  */
 export const COVER_MIN_WIDTH = 1600;
+
+/**
+ * The narrowest picture that may become the cover by being upscaled first.
+ *
+ * Between this and COVER_MIN_WIDTH a picture is enlarged to the cover width
+ * (see `upscale.ts`) — a 1200px share card of the real work beats a generated
+ * likeness of it. Below this, even a restoration model is inventing most of
+ * what the reader sees, and the picture is for generating from.
+ */
+export const COVER_UPSCALE_MIN_WIDTH = 600;

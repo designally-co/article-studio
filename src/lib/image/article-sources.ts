@@ -18,12 +18,11 @@ import { COVER_MIN_WIDTH } from "./reference-policy";
  * it is what the publications worth imitating run: the work itself, "courtesy
  * of" the studio. No photo library has it and no model should fake it.
  *
- * NOTHING HERE IS CLEARED. A page's pictures belong to whoever published them,
- * and a credit is not a licence. These come back with `license: null`, which
- * the image stage shows as "needs permission", and none of them can become a
- * cover until a person confirms the press-kit terms allow it or that permission
- * was given (see `sourced-cover.ts`). They may still be used as a REFERENCE for
- * generation straight away, as any photograph could.
+ * NO LICENCE COMES WITH THEM. A page's pictures belong to whoever published
+ * them, so these come back with `license: null` and are credited "courtesy
+ * of" the page when they become the cover. The editors hold the permission
+ * themselves and are not asked for it (see `sourced-cover.ts`). They may be
+ * used as a REFERENCE for generation as well, as any photograph could.
  *
  * UP TO THREE PER PAGE. First the lead image — `og:image`, the one picture the
  * publisher put forward for the page — then the largest pictures in the page's
@@ -551,8 +550,8 @@ export async function findArticleSourceImages(
     : dealt.filter((entry) => entry.lead).map((entry) => ({ ...entry.candidate, match: "related" as const }));
 
   /* Subject first, and among those the ones big enough to be the cover as they
-     are (COVER_MIN_WIDTH) — a routine asks for one, and uses it as the cover
-     only if it clears that bar. The round order is kept within each group. */
+     are (COVER_MIN_WIDTH) — a routine asks for one, and a smaller one has to
+     be upscaled to become the cover. The round order is kept within each group. */
   const coverSized = (candidate: ReferenceCandidate) => candidate.width >= COVER_MIN_WIDTH;
   return [
     ...ruled.filter((candidate) => candidate.match === "subject" && coverSized(candidate)),

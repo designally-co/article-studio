@@ -5,7 +5,8 @@ import { imageReferences, images, projects, type CoverCredit } from "@/db/schema
 import { loadStoredImage, saveGeneratedImage, saveImage } from "@/lib/image/storage";
 import { imageSize } from "@/lib/image/dimensions";
 import { downloadImage, USER_AGENT } from "@/lib/image/reference-sources";
-import { COVER_MIN_WIDTH } from "@/lib/image/reference-policy";
+import { COVER_MIN_WIDTH, COVER_UPSCALE_MIN_WIDTH } from "@/lib/image/reference-policy";
+import { upscaleForCover } from "@/lib/image/upscale";
 import type { GeneratedImageView } from "./views";
 
 /**
@@ -17,12 +18,13 @@ import type { GeneratedImageView } from "./views";
  * plausible stand-in for a picture that already exists. So a reference the
  * search found (or the editor uploaded) can become the cover as it is.
  *
- * WHAT MAKES IT ALLOWED. A credit is not a licence. An open-licence photograph
- * (Unsplash, or Openverse filtered to commercial use and modification) carries
- * its permission with it. Anything else — a studio's press image, an upload —
- * needs a person to say the press-kit terms allow it or that permission was
- * given, and `rightsConfirmed` is that person saying so. Nothing is inserted
- * without it, so every sourced cover that exists has been cleared by someone.
+ * PERMISSION. The editors have told us they hold the rights to what they use
+ * (28 Sep 2026), so no confirmation is asked for. The credit is still written
+ * and published in References: an open licence such as CC BY requires it, and
+ * a studio's press image is courtesy of the studio either way.
+ *
+ * SIZE. A picture narrower than the cover width is upscaled to it (see
+ * `upscale.ts`) rather than refused, down to COVER_UPSCALE_MIN_WIDTH.
  *
  * WHAT IT BECOMES. An `images` row like any generated variation — provider
  * `source` — so choosing, previewing, deleting and publishing it are the paths
@@ -124,7 +126,6 @@ function ratioOf(width: number, height: number): string {
 export async function coverFromReferenceCore(
   projectId: string,
   referenceId: string,
-  confirmation: { rightsConfirmed: boolean; confirmedBy: string },
 ): Promise<{ image: GeneratedImageView; credit: CoverCredit }> {
   const db = await getDb();
   const [reference] = await db
@@ -135,11 +136,6 @@ export async function coverFromReferenceCore(
   if (!reference || reference.projectId !== projectId) throw new Error("That reference is no longer on this article.");
   if (reference.sweptAt) throw new Error("That photograph's file was cleared after publishing. Find it again to use it.");
 
-  const cleared = reference.origin === "open_license" && !!reference.license;
-  if (!cleared && !confirmation.rightsConfirmed) {
-    throw new Error("Confirm you have permission to use this image before making it the cover.");
-  }
-
   /* The full-size photograph where the library offers one — Unsplash, whose
      reference copy is its web size — and the reference's own bytes otherwise,
      or if that fetch fails. Pinging is part of the same call, and Unsplash's
@@ -147,20 +143,27 @@ export async function coverFromReferenceCore(
   const original =
     reference.origin === "open_license" ? await pingUnsplashDownload(reference.sourceUrl) : null;
   const fullSize = original ? await downloadImage(original) : null;
-  const stored = fullSize
+  let stored = fullSize
     ? { data: fullSize.data, mimeType: fullSize.mimeType }
     : await loadStoredImage(reference.storagePath);
   if (!stored) throw new Error("That photograph could not be read. Find it again, or upload it.");
 
-  /* A COVER HAS A STANDARD. Checked on the bytes that would go up — the
-     full-size Unsplash original where there is one, the reference otherwise —
-     so a 1200px share card is refused here whoever asks: the stage hides the
-     button for it, and a routine that tries falls back to generating from it. */
+  /* A COVER HAS A STANDARD. Measured on the bytes that would go up — the
+     full-size Unsplash original where there is one, the reference otherwise.
+     Narrower than the delivery width, the photograph is upscaled to it; too
+     small even for that, it is refused, and a routine that tries falls back
+     to generating from it. */
   const width = fullSize?.width ?? imageSize(stored.data)?.width ?? reference.width;
-  if (width < COVER_MIN_WIDTH) {
+  if (width < COVER_UPSCALE_MIN_WIDTH) {
     throw new Error(
-      `This picture is ${width}px wide, and a cover needs at least ${COVER_MIN_WIDTH}px. Generate from it instead.`,
+      `This picture is ${width}px wide, too small to use as the cover even upscaled (${COVER_UPSCALE_MIN_WIDTH}px or more). Generate from it instead.`,
     );
+  }
+  let upscaledFrom: number | null = null;
+  if (width < COVER_MIN_WIDTH) {
+    const upscaled = await upscaleForCover(stored.data, stored.mimeType, width);
+    stored = { data: upscaled.data, mimeType: upscaled.mimeType };
+    upscaledFrom = width;
   }
 
   /* Stored the way a generated cover is — WebP, at most the delivery width —
@@ -189,7 +192,9 @@ export async function coverFromReferenceCore(
       model: reference.origin,
       // The column is the record of where an image came from; for a photograph
       // that is its page, not a prompt.
-      prompt: `Photograph from ${reference.sourceUrl ?? reference.originalName}`,
+      prompt: `Photograph from ${reference.sourceUrl ?? reference.originalName}${
+        upscaledFrom ? `, upscaled from ${upscaledFrom}px` : ""
+      }`,
       aspectRatio: ratioOf(saved.width, saved.height),
       width: saved.width,
       height: saved.height,
@@ -204,9 +209,6 @@ export async function coverFromReferenceCore(
     referenceId: reference.id,
     origin: reference.origin,
     license: reference.license,
-    ...(cleared
-      ? {}
-      : { rightsConfirmedAt: new Date().toISOString(), rightsConfirmedBy: confirmation.confirmedBy }),
   };
 
   /* A JSON merge, not a rewrite of `inputs`: a search or a generation may be

@@ -39,8 +39,7 @@ import { AccentOrb } from "@/components/accent-orb";
 import type { ImageAspectRatio } from "@/lib/image/providers";
 import type { GeneratedImageView, UploadedReferenceView } from "@/lib/pipeline/views";
 import type { CoverCredit } from "@/db/schema";
-import { ConfirmDialog } from "@/components/confirm-dialog";
-import { COVER_MIN_WIDTH, MAX_FOUND_REFERENCES } from "@/lib/image/reference-policy";
+import { COVER_MIN_WIDTH, COVER_UPSCALE_MIN_WIDTH, MAX_FOUND_REFERENCES } from "@/lib/image/reference-policy";
 import type { BrandReviewResult } from "@/lib/brand-review";
 import { type ArticleVisualBrief, type ImagePromptVariant } from "@/lib/image/visual-brief";
 
@@ -490,12 +489,9 @@ function ImagePanel({
   // Optimistic: the route resolves the cover on reload, but the choice has to
   // register the instant it is clicked or the control feels broken.
   const [chosenCoverId, setChosenCoverId] = useState<string | null>(coverImageId);
-  /* A PHOTOGRAPH CAN BE THE COVER. The credit each one is owed, by image id,
-     and the reference waiting on the editor's word that it may be published —
-     see @/lib/pipeline/sourced-cover for why an open licence needs no such
-     word and everything else does. */
+  /* A PHOTOGRAPH CAN BE THE COVER. The credit each one is owed, by image id —
+     see @/lib/pipeline/sourced-cover. */
   const [credits, setCredits] = useState<Record<string, CoverCredit>>(coverCredits);
-  const [permissionFor, setPermissionFor] = useState<UploadedReferenceView | null>(null);
   const [coverBusy, setCoverBusy] = useState(false);
   /* How far the phone's sheet has risen. The stage does not scroll, so the
      content moves by exactly that much rather than being covered — a tuned
@@ -670,9 +666,11 @@ function ImagePanel({
       if (subject) {
         setChosenReferenceId(subject.id);
         notes.push(
-          canBeCover(subject)
-            ? "The selected picture shows what this article is about. Use it as the cover, or generate from it."
-            : "The selected picture shows what this article is about, but it is too small to use as the cover. Generate from it.",
+          !canBeCover(subject)
+            ? "The selected picture shows what this article is about, but it is too small to use as the cover, even upscaled. Generate from it."
+            : needsUpscale(subject)
+              ? "The selected picture shows what this article is about. Use it as the cover (it will be upscaled to full size), or generate from it."
+              : "The selected picture shows what this article is about. Use it as the cover, or generate from it.",
         );
       }
       if (
@@ -799,7 +797,7 @@ function ImagePanel({
      generated ones rather than a special case of the cover, so choosing,
      deleting and publishing it are the paths that already exist. A second
      press on the same photograph chooses the cover it already became. */
-  async function coverFromReference(item: UploadedReferenceView, rightsConfirmed: boolean) {
+  async function coverFromReference(item: UploadedReferenceView) {
     const already = imgs.find((image) => credits[image.id]?.referenceId === item.id);
     if (already) {
       chooseCover(already.id);
@@ -808,7 +806,7 @@ function ImagePanel({
     setCoverBusy(true);
     setError(null);
     try {
-      const result = await coverFromReferenceAction(projectId, item.id, rightsConfirmed);
+      const result = await coverFromReferenceAction(projectId, item.id);
       setImgs((current) => [result.image, ...current]);
       setCredits((current) => ({ ...current, [result.image.id]: result.credit }));
       setChosenCoverId(result.image.id);
@@ -819,17 +817,21 @@ function ImagePanel({
     }
   }
 
-  /* Big enough to go up as it is. An Unsplash photograph passes whatever its
-     reference copy measures: its full-size original is what becomes the cover
-     (see sourced-cover.ts), and the server checks those bytes. */
-  function canBeCover(item: UploadedReferenceView): boolean {
-    return item.width >= COVER_MIN_WIDTH || /^https:\/\/unsplash\.com\//.test(item.sourceUrl ?? "");
+  /* An Unsplash photograph passes whatever its reference copy measures: its
+     full-size original is what becomes the cover (see sourced-cover.ts), and
+     the server checks those bytes. */
+  function isUnsplash(item: UploadedReferenceView): boolean {
+    return /^https:\/\/unsplash\.com\//.test(item.sourceUrl ?? "");
   }
 
-  function askCoverFromReference(item: UploadedReferenceView) {
-    // An open licence is the permission; anything else is someone's to give.
-    if (item.origin === "open_license" && item.license) void coverFromReference(item, false);
-    else setPermissionFor(item);
+  /* Big enough to be the cover, as it is or upscaled to the cover width. */
+  function canBeCover(item: UploadedReferenceView): boolean {
+    return item.width >= COVER_UPSCALE_MIN_WIDTH || isUnsplash(item);
+  }
+
+  /* Narrower than the cover width, so the server enlarges it first. */
+  function needsUpscale(item: UploadedReferenceView): boolean {
+    return item.width < COVER_MIN_WIDTH && !isUnsplash(item);
   }
 
   const referenceMissing = Boolean(
@@ -1199,11 +1201,7 @@ function ImagePanel({
                   ) : (
                     activeReference.sourceName
                   )}
-                  {activeReference.license
-                    ? ` · ${activeReference.license}`
-                    : activeReference.origin === "article_source"
-                      ? " · needs permission to publish"
-                      : ""}
+                  {activeReference.license ? ` · ${activeReference.license}` : ""}
                 </>
               ) : (
                 <>Uploaded reference.</>
@@ -1212,8 +1210,9 @@ function ImagePanel({
                   leads with the work, a generated likeness of it is the lesser
                   image — so the photograph can go to the middle as it is. */}
               {/* The size, because it decides what the picture can be: at the
-                  delivery width it can go up as it is; below it, it is still
-                  good to generate from, and the line says so rather than
+                  delivery width it goes up as it is; narrower, it is upscaled
+                  to it first, which takes longer; too small even for that, it
+                  is for generating from, and the line says so rather than
                   offering a button the server would refuse. */}
               {activeReference && (
                 <>
@@ -1222,14 +1221,20 @@ function ImagePanel({
                   {canBeCover(activeReference) ? (
                     <button
                       type="button"
-                      onClick={() => askCoverFromReference(activeReference)}
+                      onClick={() => void coverFromReference(activeReference)}
                       disabled={coverBusy || busy !== null}
                       className="font-medium text-ink underline decoration-line-strong underline-offset-2 transition-colors duration-(--duration-fast) hover:decoration-current focus-visible:outline-none focus-visible:shadow-[var(--shadow-focus)] disabled:opacity-50"
                     >
-                      {coverBusy ? "Making it the cover…" : "Use as cover"}
+                      {coverBusy
+                        ? needsUpscale(activeReference)
+                          ? "Upscaling and making it the cover…"
+                          : "Making it the cover…"
+                        : needsUpscale(activeReference)
+                          ? "Use as cover (upscaled)"
+                          : "Use as cover"}
                     </button>
                   ) : (
-                    <>too small for a cover, generate from it</>
+                    <>too small for a cover even upscaled, generate from it</>
                   )}
                 </>
               )}
@@ -1447,33 +1452,6 @@ function ImagePanel({
         {imageGrid}
       </StageSheet>
 
-      <ConfirmDialog
-        open={permissionFor !== null}
-        title="Use this image as the cover?"
-        confirmLabel="I have permission"
-        tone="primary"
-        description={
-          permissionFor?.origin === "upload" ? (
-            <>
-              An uploaded picture belongs to whoever made it. Use it only if you made it, or they
-              have given permission. It will be credited in the article&rsquo;s References, and you
-              can edit the wording.
-            </>
-          ) : (
-            <>
-              This picture belongs to {permissionFor?.sourceName ?? "the page it came from"}. Use it
-              only if their press terms allow editorial use, or they have given permission. It will
-              be credited in the article&rsquo;s References, and you can edit the wording.
-            </>
-          )
-        }
-        onCancel={() => setPermissionFor(null)}
-        onConfirm={() => {
-          const item = permissionFor;
-          setPermissionFor(null);
-          if (item) void coverFromReference(item, true);
-        }}
-      />
     </div>
   );
 }

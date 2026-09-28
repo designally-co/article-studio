@@ -471,17 +471,14 @@ async function runReferenceStep(projectId: string, count: number) {
 
   /* THE WORK ITSELF, WHEN A CITED PAGE HAS IT. A picture judged to show the
      very thing the article is about becomes the cover as it is, credited in
-     References — the user's decision (25 Sep 2026) for routines. It stands in
-     for the permission an editor confirms by hand, and is recorded as the
-     routine's so the credit says who decided. Anything that goes wrong here
-     falls through to generating from the picture instead. */
+     References — the user's decision (25 Sep 2026) for routines — upscaled
+     first when it is narrower than the cover width. Anything that goes wrong
+     here, a picture too small even to upscale included, falls through to
+     generating from the picture instead. */
   const subjectId = found.subjectIds?.[0];
   if (subjectId) {
     try {
-      const { image } = await coverFromReferenceCore(projectId, subjectId, {
-        rightsConfirmed: true,
-        confirmedBy: "Routine (automatic)",
-      });
+      const { image } = await coverFromReferenceCore(projectId, subjectId);
       await writeImageWork(projectId, { referenceId: subjectId, sourcedCoverId: image.id });
       return;
     } catch {
