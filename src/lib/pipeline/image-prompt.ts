@@ -6,9 +6,11 @@ import { SchemaValidationError, containsThai } from "@/lib/ai/schemas";
 import { imagePromptTask, articleVisualBriefTask } from "@/prompts/tasks";
 import { IMAGE_SYSTEM_PROMPT } from "@/prompts/system";
 import {
+  IMAGE_MEDIUMS,
   MAX_PROMPT_VARIANTS,
   finishImagePrompt,
   type ArticleVisualBrief,
+  type ImageMedium,
   type DraftedImagePrompt,
   type ImagePromptVariant,
 } from "@/lib/image/visual-brief";
@@ -33,7 +35,8 @@ export async function generateImagePromptCore(
 ): Promise<DraftedImagePrompt> {
   const loaded = await loadProject(projectId);
   if (!loaded) throw new Error("Project not found");
-  const { drafting } = await getModels();
+  // The image model, chosen in Settings apart from the one articles are written with.
+  const { image: drafting } = await getModels();
   const selected = loaded.drafts.find((d) => d.isSelected) ?? loaded.drafts[0];
   const article = selected?.contentMd.trim() ?? "";
   if (!article) throw new Error("No finished article is available for image planning.");
@@ -85,10 +88,22 @@ export async function generateImagePromptCore(
       properties: {
         referenceScene: { type: "string" },
         scene: { type: "string" },
-        alternateScenes: { type: "array", items: { type: "string" } },
+        medium: { type: "string", enum: [...IMAGE_MEDIUMS] },
+        alternateScenes: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              scene: { type: "string" },
+              medium: { type: "string", enum: [...IMAGE_MEDIUMS] },
+            },
+            required: ["scene", "medium"],
+            additionalProperties: false,
+          },
+        },
         photoQuery: { type: "string" },
       },
-      required: ["referenceScene", "scene", "alternateScenes", "photoQuery"],
+      required: ["referenceScene", "scene", "medium", "alternateScenes", "photoQuery"],
       additionalProperties: false,
     },
     maxTokens: 1200,
@@ -105,23 +120,30 @@ export async function generateImagePromptCore(
    * action lives inside the page's 60s `maxDuration` and four in sequence would
    * not fit. Only the count actually asked for is written.
    */
-  const scenes = [brief.scene, ...(brief.alternateScenes ?? [])]
-    .map((scene) => scene.trim())
-    .filter((scene) => scene.length > 0)
+  // A medium the schema did not hold to is read as a photograph: what every
+  // image was before the choice existed.
+  const mediumOf = (value: unknown): ImageMedium => (value === "illustration" ? "illustration" : "photograph");
+  const scenes = [{ scene: brief.scene, medium: brief.medium }, ...(brief.alternateScenes ?? [])]
+    .map((entry) => ({ scene: entry.scene?.trim() ?? "", medium: mediumOf(entry.medium) }))
+    .filter((entry) => entry.scene.length > 0)
     .slice(0, variantCount);
-  if (scenes.length === 0) scenes.push(brief.scene);
+  if (scenes.length === 0) scenes.push({ scene: brief.scene, medium: mediumOf(brief.medium) });
 
   // Image prompts must be English — the Fal models are English-trained.
   // Enforced in the prompt AND here: if Thai leaks in, retry once with an
   // explicit instruction, then reject rather than send a non-English prompt.
-  const writeVariant = async (scene: string, index: number): Promise<ImagePromptVariant> => {
+  const writeVariant = async (
+    { scene, medium }: { scene: string; medium: ImageMedium },
+    index: number,
+  ): Promise<ImagePromptVariant> => {
     const taskText = imagePromptTask({
       title,
       visualBrief: brief,
       scene,
+      medium,
       variantNo: index + 1,
       variantCount: scenes.length,
-      siblingScenes: scenes.filter((_, other) => other !== index),
+      siblingScenes: scenes.filter((_, other) => other !== index).map((entry) => entry.scene),
       hasReferenceImage,
     });
     const run = (extra?: string) =>
@@ -143,7 +165,7 @@ export async function generateImagePromptCore(
         throw new SchemaValidationError("image_prompt", "image prompt must be English (Thai characters found)");
       }
     }
-    return { scene, prompt: finishImagePrompt(written) };
+    return { scene, medium, prompt: finishImagePrompt(written, medium, hasReferenceImage) };
   };
 
   const settled = await Promise.allSettled(scenes.map(writeVariant));

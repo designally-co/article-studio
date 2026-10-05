@@ -2,6 +2,7 @@ import "server-only";
 import { and, eq } from "drizzle-orm";
 import { getDb } from "@/db";
 import { pricing, apiUsageLog, type PricingUnit } from "@/db/schema";
+import { KNOWN_TEXT_PRICES } from "@/lib/models";
 
 export type Usage = {
   input_tokens: number;
@@ -36,7 +37,12 @@ async function priceFor(
       )
     )
     .limit(1);
-  return row ? Number(row.priceUsd) : 0;
+  if (row) return Number(row.priceUsd);
+  // A text model the table has no row for — a new one chosen in Settings.
+  const known = provider === "anthropic" ? KNOWN_TEXT_PRICES[model] : undefined;
+  if (known && unit === "mtok_in") return known.in;
+  if (known && unit === "mtok_out") return known.out;
+  return 0;
 }
 
 /** USD cost of a text generation given token counts and the model's pricing. */

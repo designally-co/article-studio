@@ -7,7 +7,6 @@ import {
   categories,
   appSettings,
   brandProfiles,
-  pricing,
   type FormatRules,
 } from "@/db/schema";
 import { requireUser } from "@/lib/session";
@@ -20,10 +19,12 @@ import {
 } from "@/lib/secrets";
 import { getBrand } from "@/lib/brand";
 import {
-  TEXT_MODELS,
   DEFAULT_RESEARCH_MODEL,
   DEFAULT_DRAFTING_MODEL,
+  modelLabel,
+  type TextModelOption,
 } from "@/lib/models";
+import { availableTextModels } from "@/lib/anthropic";
 import { DEFAULT_ARTICLE_PROMPT, getArticleRules } from "@/lib/article-template";
 import { serializeBrandStrategy } from "@/lib/designally-strategy";
 import type { BrandForEditor } from "./brand-editor";
@@ -86,11 +87,14 @@ export async function saveModelSettingsAction(formData: FormData) {
   const db = await getDb();
   const research = String(formData.get("research") ?? "").trim();
   const drafting = String(formData.get("drafting") ?? "").trim();
+  const image = String(formData.get("image") ?? "").trim();
   for (const [key, value] of [
     ["model.research", research],
     ["model.drafting", drafting],
+    ["model.image", image],
   ] as const) {
-    if (!value) continue;
+    // Empty image model is a choice — "same as drafting" — and is saved as one.
+    if (!value && key !== "model.image") continue;
     await db
       .insert(appSettings)
       .values({ key, value })
@@ -213,7 +217,7 @@ export type SettingsData =
   | {
       section: "api";
       keys: SavedApiKey[];
-      textModels: string[];
+      textModels: TextModelOption[];
       settings: Record<string, string>;
     };
 
@@ -257,25 +261,28 @@ export async function loadSettingsAction(section: SettingsSection): Promise<Sett
   // that decides it — not the menu that chose whether to render the item.
   if (currentUser.role !== "admin") throw new Error("Not permitted.");
 
-  const [prices, settingsRows, savedKeys] = await Promise.all([
-    db.select().from(pricing).orderBy(asc(pricing.provider), asc(pricing.model)),
+  const [settingsRows, savedKeys] = await Promise.all([
     db.select().from(appSettings),
     listApiKeys("fal"),
   ]);
   const settings = Object.fromEntries(settingsRows.map((row) => [row.key, row.value]));
 
-  /* The supported list first, then anything the pricing table knows about, then
+  /* What Anthropic says this key can use, newest first — so a new model is in
+     the dropdown the day it is released (see `availableTextModels`) — then
      whatever is actually configured. The last one matters: a model set by hand
-     or left over from an older list must still be SHOWN, or the dropdown reads
-     as empty while quietly holding a value. */
-  const textModels = Array.from(
-    new Set([
-      ...TEXT_MODELS,
-      ...prices.filter((price) => price.provider === "anthropic").map((price) => price.model),
-      settings["model.research"] ?? DEFAULT_RESEARCH_MODEL,
-      settings["model.drafting"] ?? DEFAULT_DRAFTING_MODEL,
-    ])
-  );
+     or since retired must still be SHOWN, or the dropdown reads as empty while
+     quietly holding a value. */
+  const available = await availableTextModels();
+  const listed = new Set(available.map((option) => option.id));
+  const configured = [
+    settings["model.research"] ?? DEFAULT_RESEARCH_MODEL,
+    settings["model.drafting"] ?? DEFAULT_DRAFTING_MODEL,
+    settings["model.image"],
+  ].filter((id): id is string => !!id && !listed.has(id));
+  const textModels: TextModelOption[] = [
+    ...available,
+    ...Array.from(new Set(configured)).map((id) => ({ id, label: modelLabel(id) })),
+  ];
 
   return { section, keys: savedKeys, textModels, settings };
 }
