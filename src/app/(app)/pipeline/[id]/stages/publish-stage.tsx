@@ -1813,9 +1813,9 @@ function PublishComposer({
  * is no image; on a timer it simply passes.
  */
 const PUBLISH_STEPS = [
-  { at: 0, label: "Preparing the article" },
-  { at: 2, label: "Uploading the cover" },
-  { at: 6, label: "Sending it to the Hub" },
+  { at: 0, label: "Preparing the article", art: "assemble" },
+  { at: 2, label: "Uploading the cover", art: "upload" },
+  { at: 6, label: "Sending it to the Hub", art: "send" },
 ] as const;
 
 const PUBLISH_TYPICAL_SECONDS = 12;

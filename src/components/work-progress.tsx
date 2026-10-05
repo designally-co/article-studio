@@ -24,7 +24,7 @@ import { WorkArt, type WorkArtKind } from "./work-art";
 export type WorkStep = {
   at: number;
   label: string;
-  /** A small drawing of the step (components/work-art). Shown only in the regular size. */
+  /** A small drawing of the step (components/work-art), smaller in the compact size. */
   art?: WorkArtKind;
 };
 
@@ -58,10 +58,10 @@ export function WorkProgress({
 
   return (
     <div role="status" className={compact ? "" : "text-center"}>
-      {!compact && art && (
+      {art && (
         // Keyed, so the next drawing fades in when the step changes.
-        <div key={art} className="cs-step-in mb-6">
-          <WorkArt kind={art} />
+        <div key={art} className={`cs-step-in ${compact ? "mb-3" : "mb-6"}`}>
+          <WorkArt kind={art} width={compact ? 120 : 160} />
         </div>
       )}
       {heading && (
