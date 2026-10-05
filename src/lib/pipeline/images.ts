@@ -11,6 +11,7 @@ import { IMAGE_ASPECT_RATIOS } from "@/lib/image/providers";
 import { findRelatedReferences, type RelatedReferenceSearch } from "@/lib/image/reference-search";
 import { MAX_FOUND_REFERENCES } from "@/lib/image/reference-policy";
 import { citedPages, findArticleSourceImages } from "@/lib/image/article-sources";
+import { coversInUse } from "./sourced-cover";
 import type {
   GeneratedImageView,
   GenerationRunResult,
@@ -136,6 +137,11 @@ export async function findReferenceImagesCore(
     })
     .where(eq(projects.id, projectId));
 
+  /* NOT ANOTHER ARTICLE'S COVER. Two articles citing one page find the same
+     picture; the second is offered the page's next one instead. Best effort: a
+     failure here costs the check, not the search. */
+  const avoid = (await coversInUse(projectId).catch(() => [])).map((cover) => cover.hash);
+
   /* TWO PLACES AT ONCE. The pages the article cites come first: their lead
      image is usually the work itself, photographed by the studio that made it,
      which is what a good design publication runs. The photo libraries fill
@@ -148,6 +154,7 @@ export async function findReferenceImagesCore(
       projectId,
       title,
       angle: loaded.project.selectedTopic?.angle,
+      avoid,
     }).catch(() => []),
     findRelatedReferences({
       projectId,
@@ -158,6 +165,7 @@ export async function findReferenceImagesCore(
       article: article.slice(0, 3000),
       seedQuery: options?.query,
       limit: room,
+      avoid,
     }),
   ]);
   const candidates = (

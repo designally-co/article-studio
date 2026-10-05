@@ -7,6 +7,7 @@ import { sourceImageJudgeTask } from "@/prompts/tasks";
 import { downloadImage, fingerprint, USER_AGENT, type ReferenceCandidate } from "./reference-sources";
 import { loadSharp } from "./sharp";
 import { COVER_MIN_WIDTH } from "./reference-policy";
+import { withoutPictures } from "./picture-hash";
 
 /**
  * Pictures from the pages the article cites — the studio's own pictures of its
@@ -497,6 +498,8 @@ export async function findArticleSourceImages(
     projectId: string;
     title: string;
     angle?: string;
+    /** Other articles' covers, by `pictureHash`: not offered again. */
+    avoid?: string[];
   },
 ): Promise<ReferenceCandidate[]> {
   if (options.limit <= 0) return [];
@@ -511,7 +514,7 @@ export async function findArticleSourceImages(
   // The same picture once, by its bytes: two pages of one site can lead with
   // the same image, and two copies of it is one choice, not two.
   const seen = new Set<string>();
-  const dealt: { candidate: ReferenceCandidate; lead: boolean }[] = [];
+  let dealt: { candidate: ReferenceCandidate; lead: boolean }[] = [];
   for (let round = 0; round < PER_PAGE; round += 1) {
     for (const pictures of perPage) {
       const entry = pictures[round];
@@ -522,6 +525,9 @@ export async function findArticleSourceImages(
       dealt.push(entry);
     }
   }
+  /* Before the judge, so a picture another article already opens with never
+     takes the place of this page's next one. */
+  dealt = await withoutPictures(dealt, (entry) => entry.candidate.data, options.avoid ?? []);
   if (dealt.length === 0) return [];
 
   const verdicts = await judgeSourcePictures(

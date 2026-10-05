@@ -12,6 +12,7 @@ import {
   type ReferenceCandidate,
   type ReferenceHit,
 } from "./reference-sources";
+import { withoutPictures } from "./picture-hash";
 
 /**
  * Finding a RELATED photograph, not an identical one.
@@ -233,6 +234,8 @@ export async function findRelatedReferences(params: {
   /** The image brief's own query, when one has been drafted. A hint to the plan, and the fallback without one. */
   seedQuery?: string;
   limit: number;
+  /** Other articles' covers, by `pictureHash`: not offered again. */
+  avoid?: string[];
 }): Promise<RelatedReferenceSearch> {
   const result: RelatedReferenceSearch = {
     candidates: [],
@@ -352,6 +355,7 @@ export async function findRelatedReferences(params: {
     const print = fingerprint(candidate.data);
     if (bytes.has(print)) continue;
     bytes.add(print);
+    if ((await withoutPictures([candidate], (kept) => kept.data, params.avoid ?? [])).length === 0) continue;
     result.candidates.push(candidate);
   }
   return result;
