@@ -1807,9 +1807,9 @@ function PublishComposer({
 }
 
 /**
- * What a publish moves through, on elapsed time (see WorkProgress), and what it
- * usually takes. The Thai translation runs on the Hub after it answers, so it
- * is not part of this wait. The cover step is skipped server-side when there
+ * What a publish moves through, on elapsed time (see WorkProgress). It takes
+ * seconds — the Thai translation runs on the Hub after it answers — so the
+ * panel shows no countdown. The cover step is skipped server-side when there
  * is no image; on a timer it simply passes.
  */
 const PUBLISH_STEPS = [
@@ -1817,8 +1817,6 @@ const PUBLISH_STEPS = [
   { at: 2, label: "Uploading the cover", art: "upload" },
   { at: 6, label: "Sending it to the Hub", art: "send" },
 ] as const;
-
-const PUBLISH_TYPICAL_SECONDS = 12;
 
 /**
  * The working state for a publish.
@@ -1847,15 +1845,12 @@ function cmsUrlForHubPage(publicUrl: string): string | undefined {
   }
 }
 
-function PublishingPanel({ status }: { status: "draft" | "published" }) {
+/* The drawing, the step and the bar: a publish takes seconds, so no heading
+   and no countdown. */
+function PublishingPanel() {
   return (
     <div className="rounded-2xl bg-sunken p-3.5">
-      <WorkProgress
-        steps={PUBLISH_STEPS}
-        typicalSeconds={PUBLISH_TYPICAL_SECONDS}
-        heading={status === "published" ? "Publishing to the Hub" : "Saving a draft to the Hub"}
-        size="compact"
-      />
+      <WorkProgress steps={PUBLISH_STEPS} size="compact" />
     </div>
   );
 }
@@ -2040,7 +2035,7 @@ function PublishRail({
               disabled CTA left on screen was read as a frozen app rather than
               as work in progress. */}
           {busy ? (
-            <PublishingPanel status={busy} />
+            <PublishingPanel />
           ) : (
             <>
           <button

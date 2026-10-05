@@ -35,7 +35,8 @@ export function WorkProgress({
   size = "regular",
 }: {
   steps: readonly WorkStep[];
-  typicalSeconds: number;
+  /** What the work usually takes. Without it no countdown is shown — for a wait too short to need one. */
+  typicalSeconds?: number;
   /** A line above the step, e.g. the article's title. Optional. */
   heading?: string;
   /** `compact` for a side rail; `regular` for a card on its own. */
@@ -52,8 +53,9 @@ export function WorkProgress({
   for (let i = 0; i < steps.length; i++) if (elapsed >= steps[i].at) active = i;
   const step = steps[active]?.label ?? "";
   const art = steps[active]?.art;
-  const left = Math.max(typicalSeconds - elapsed, 0);
-  const remaining = left > 0 ? `About ${left} second${left === 1 ? "" : "s"} left` : "Almost done…";
+  const left = typicalSeconds === undefined ? undefined : Math.max(typicalSeconds - elapsed, 0);
+  const remaining =
+    left === undefined ? undefined : left > 0 ? `About ${left} second${left === 1 ? "" : "s"} left` : "Almost done…";
   const compact = size === "compact";
 
   return (
@@ -93,9 +95,11 @@ export function WorkProgress({
       </span>
 
       {/* Not announced every second: the step line above is the live news. */}
-      <p aria-live="off" className={`tabular-nums text-ink-3 ${compact ? "mt-2 text-xs" : "mt-3 text-sm"}`}>
-        {remaining}
-      </p>
+      {remaining && (
+        <p aria-live="off" className={`tabular-nums text-ink-3 ${compact ? "mt-2 text-xs" : "mt-3 text-sm"}`}>
+          {remaining}
+        </p>
+      )}
     </div>
   );
 }
