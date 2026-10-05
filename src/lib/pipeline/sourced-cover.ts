@@ -1,5 +1,5 @@
 import "server-only";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, inArray, ne, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import { imageReferences, images, projects, type CoverCredit } from "@/db/schema";
 import { loadStoredImage, saveGeneratedImage, saveImage } from "@/lib/image/storage";
@@ -7,6 +7,7 @@ import { imageSize } from "@/lib/image/dimensions";
 import { downloadImage, USER_AGENT } from "@/lib/image/reference-sources";
 import { COVER_MIN_WIDTH, COVER_UPSCALE_MIN_WIDTH } from "@/lib/image/reference-policy";
 import { upscaleForCover } from "@/lib/image/upscale";
+import { isSamePicture, pictureHash } from "@/lib/image/picture-hash";
 import type { GeneratedImageView } from "./views";
 
 /**
@@ -32,6 +33,11 @@ import type { GeneratedImageView } from "./views";
  * file is swept once the article publishes, and the cover must outlive that.
  * The credit sits in `inputs.coverCredits` and is added to the article's
  * References when it publishes.
+ *
+ * ONE PICTURE, ONE ARTICLE. Two articles that cite the same page find the
+ * same picture, and the Hub then showed it twice in a row (5 Oct 2026). A
+ * picture that is already another article's cover is not offered again — see
+ * `coversInUse` — and is refused here if it gets this far.
  */
 
 export const SOURCE_PROVIDER = "source";
@@ -123,6 +129,82 @@ function ratioOf(width: number, height: number): string {
   return `${width / d}:${height / d}`;
 }
 
+type CoverInUse = { projectId: string; title: string; hash: string };
+
+/**
+ * The sourced pictures other articles have as their cover — the one chosen,
+ * and the one the Hub received, which may differ. A generated cover is made
+ * for its article and is never another's, so only sourced ones are counted.
+ *
+ * A cover made before the hash was recorded has it worked out from its stored
+ * file here, once, and written back.
+ */
+export async function coversInUse(projectId: string): Promise<CoverInUse[]> {
+  const db = await getDb();
+  const rows = await db
+    .select({
+      id: projects.id,
+      title: sql<string | null>`${projects.selectedTopic} ->> 'title'`,
+      coverImageId: sql<string | null>`${projects.inputs} ->> 'coverImageId'`,
+      publishedCoverImageId: sql<string | null>`${projects.inputs} ->> 'publishedCoverImageId'`,
+      // Only the credits, not the whole of `inputs`: this reads every article.
+      coverCredits: sql<Record<string, CoverCredit> | string | null>`${projects.inputs} -> 'coverCredits'`,
+    })
+    .from(projects)
+    .where(and(ne(projects.id, projectId), sql`${projects.inputs} -> 'coverCredits' is not null`));
+
+  const covers: (CoverInUse & { imageId: string; known: boolean })[] = [];
+  const missing: { projectId: string; title: string; imageId: string }[] = [];
+  for (const row of rows) {
+    const credits =
+      typeof row.coverCredits === "string"
+        ? (JSON.parse(row.coverCredits) as Record<string, CoverCredit>)
+        : (row.coverCredits ?? {});
+    const title = row.title?.trim() || "another article";
+    for (const imageId of new Set([row.coverImageId, row.publishedCoverImageId])) {
+      const credit = imageId ? credits[imageId] : undefined;
+      if (!imageId || !credit) continue;
+      if (credit.pictureHash) covers.push({ projectId: row.id, title, hash: credit.pictureHash, imageId, known: true });
+      else missing.push({ projectId: row.id, title, imageId });
+    }
+  }
+
+  if (missing.length > 0) {
+    const files = await db
+      .select({ id: images.id, storagePath: images.storagePath })
+      .from(images)
+      .where(inArray(images.id, missing.map((cover) => cover.imageId)));
+    const pathOf = new Map(files.map((file) => [file.id, file.storagePath]));
+    const worked = await Promise.all(
+      missing.map(async (cover) => {
+        const path = pathOf.get(cover.imageId);
+        const stored = path ? await loadStoredImage(path).catch(() => null) : null;
+        const hash = stored ? await pictureHash(stored.data) : null;
+        return hash ? { ...cover, hash, known: false } : null;
+      }),
+    );
+    for (const cover of worked) if (cover) covers.push(cover);
+
+    /* Written back so the file is read once, not on every search. Into the
+       credit only if it is still there: the editor may have changed it since. */
+    await Promise.all(
+      covers
+        .filter((cover) => !cover.known)
+        .map((cover) =>
+          db
+            .update(projects)
+            .set({
+              inputs: sql`jsonb_set(${projects.inputs}, ${`{coverCredits,${cover.imageId},pictureHash}`}::text[], ${JSON.stringify(cover.hash)}::jsonb)`,
+            })
+            .where(and(eq(projects.id, cover.projectId), sql`${projects.inputs} -> 'coverCredits' -> ${cover.imageId}::text is not null`))
+            .catch(() => undefined),
+        ),
+    );
+  }
+
+  return covers.map(({ projectId: id, title, hash }) => ({ projectId: id, title, hash }));
+}
+
 export async function coverFromReferenceCore(
   projectId: string,
   referenceId: string,
@@ -147,6 +229,16 @@ export async function coverFromReferenceCore(
     ? { data: fullSize.data, mimeType: fullSize.mimeType }
     : await loadStoredImage(reference.storagePath);
   if (!stored) throw new Error("That photograph could not be read. Find it again, or upload it.");
+
+  const hash = await pictureHash(stored.data);
+  if (hash) {
+    const taken = (await coversInUse(projectId)).find((cover) => isSamePicture(hash, cover.hash));
+    if (taken) {
+      throw new Error(
+        `This picture is already the cover of "${taken.title}". Choose another, or generate one from it.`,
+      );
+    }
+  }
 
   /* A COVER HAS A STANDARD. Measured on the bytes that would go up — the
      full-size Unsplash original where there is one, the reference otherwise.
@@ -209,6 +301,7 @@ export async function coverFromReferenceCore(
     referenceId: reference.id,
     origin: reference.origin,
     license: reference.license,
+    ...(hash ? { pictureHash: hash } : {}),
   };
 
   /* A JSON merge, not a rewrite of `inputs`: a search or a generation may be

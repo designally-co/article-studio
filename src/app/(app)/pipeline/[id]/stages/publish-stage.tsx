@@ -807,6 +807,10 @@ function ImagePanel({
     setError(null);
     try {
       const result = await coverFromReferenceAction(projectId, item.id);
+      if (!result.ok) {
+        setError(result.message);
+        return;
+      }
       setImgs((current) => [result.image, ...current]);
       setCredits((current) => ({ ...current, [result.image.id]: result.credit }));
       setChosenCoverId(result.image.id);

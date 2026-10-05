@@ -145,6 +145,12 @@ export type CoverCredit = {
   referenceId: string;
   origin: ReferenceOrigin;
   license: string | null;
+  /**
+   * What the picture looks like (see `pictureHash`), so another article does
+   * not take the same one as its cover. Missing on covers made before 5 Oct
+   * 2026; worked out from the stored file the first time it is needed.
+   */
+  pictureHash?: string;
   /** Set on covers made before 28 Sep 2026, when permission was still asked for. */
   rightsConfirmedAt?: string;
   /** Who confirmed, by email. Historical, as above. */

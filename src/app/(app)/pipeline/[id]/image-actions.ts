@@ -152,15 +152,29 @@ export async function setCoverImageAction(projectId: string, imageId: string): P
  * Make a reference photograph the cover, upscaled if it is narrower than the
  * cover width. Session-checked wrapper; the rules live in
  * @/lib/pipeline/sourced-cover.
+ *
+ * Returns its refusal instead of throwing it, as `publishToHubAction` does: a
+ * thrown Server Action error is redacted in production, and "already the cover
+ * of …" or "too small" arrived as a minified React error.
  */
 export async function coverFromReferenceAction(
   projectId: string,
   referenceId: string
-): Promise<{ image: GeneratedImageView; credit: CoverCredit }> {
+): Promise<
+  | { ok: true; image: GeneratedImageView; credit: CoverCredit }
+  | { ok: false; message: string }
+> {
   await requireUser();
-  const result = await coverFromReferenceCore(projectId, referenceId);
-  revalidatePath(`/pipeline/${projectId}`);
-  return result;
+  try {
+    const result = await coverFromReferenceCore(projectId, referenceId);
+    revalidatePath(`/pipeline/${projectId}`);
+    return { ok: true, ...result };
+  } catch (cause) {
+    return {
+      ok: false,
+      message: cause instanceof Error ? cause.message : "Could not make that photograph the cover.",
+    };
+  }
 }
 
 export async function updateCoverCreditAction(
