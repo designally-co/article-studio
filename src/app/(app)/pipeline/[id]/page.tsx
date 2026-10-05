@@ -53,7 +53,13 @@ export default async function PipelinePage({
   const loaded = await loadProject(id);
   if (!loaded) notFound();
 
-  const reached = loaded.project.stage;
+  /* AN ARTICLE AT THE DRAFT WITH NOTHING TO WRITE FROM goes back to preparing.
+     An empty outline was once saved and the project moved on, and the draft
+     then stopped at "No approved outline" with no way back. Preparation
+     re-plans when the outline is empty, and moves on again by itself. */
+  const outlineMissing =
+    loaded.project.stage >= 4 && !loaded.project.outline?.markdown?.trim() && loaded.drafts.length === 0;
+  const reached = outlineMissing ? 3 : loaded.project.stage;
   const requested = stageParam ? parseInt(stageParam, 10) : reached;
   const current = Math.min(
     Math.max(Number.isNaN(requested) ? reached : requested, 1),
