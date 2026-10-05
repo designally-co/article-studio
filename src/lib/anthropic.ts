@@ -1,7 +1,13 @@
 import "server-only";
 import Anthropic from "@anthropic-ai/sdk";
 import { getDb } from "@/db";
-import { DEFAULT_RESEARCH_MODEL, DEFAULT_DRAFTING_MODEL } from "@/lib/models";
+import {
+  DEFAULT_RESEARCH_MODEL,
+  DEFAULT_DRAFTING_MODEL,
+  TEXT_MODELS,
+  modelLabel,
+  type TextModelOption,
+} from "@/lib/models";
 import { appSettings } from "@/db/schema";
 import type { InferSelectModel } from "drizzle-orm";
 import type {
@@ -62,23 +68,132 @@ export async function isAnthropicConfigured(): Promise<boolean> {
   return Boolean(process.env.ANTHROPIC_API_KEY);
 }
 
-export async function getModels(): Promise<{ research: string; drafting: string }> {
+export async function getModels(): Promise<{ research: string; drafting: string; image: string }> {
   const db = await getDb();
   const rows = await db.select().from(appSettings);
   const map = Object.fromEntries(rows.map((r) => [r.key, r.value]));
+  const drafting = map["model.drafting"] ?? DEFAULT_DRAFTING_MODEL;
   return {
     research: map["model.research"] ?? DEFAULT_RESEARCH_MODEL,
-    drafting: map["model.drafting"] ?? DEFAULT_DRAFTING_MODEL,
+    drafting,
+    /* Its own setting, because the best model for looking at a reference and
+       briefing a picture need not be the one every article is written with —
+       and the drafting model is paid for on every draft. Unset, it follows the
+       drafting model, which is what wrote image prompts before. */
+    image: map["model.image"] || drafting,
   };
 }
 
+/** How long the list of models is trusted before Anthropic is asked again. */
+const MODEL_LIST_TTL_MS = 60 * 60 * 1000;
+let modelListCache: { at: number; options: TextModelOption[] } | null = null;
+
 /**
- * Explicitly disable thinking on models that accept it so drafting streams
- * text immediately (no leading thinking pause). Omit on Haiku/older models.
+ * Every text model this key can use, newest first, from Anthropic's Models API
+ * — so a model released after this code was written is offered without a
+ * deploy. Asked at most once an hour; when it cannot be asked (no key, no
+ * network, an error) the list in `TEXT_MODELS` stands in.
  */
-function thinkingParam(model: string) {
-  if (/haiku|claude-3/.test(model)) return undefined;
-  return { type: "disabled" as const };
+export async function availableTextModels(): Promise<TextModelOption[]> {
+  if (modelListCache && Date.now() - modelListCache.at < MODEL_LIST_TTL_MS) return modelListCache.options;
+  const fallback = TEXT_MODELS.map((id) => ({ id, label: modelLabel(id) }));
+  if (!process.env.ANTHROPIC_API_KEY) return fallback;
+  try {
+    const client = await anthropicClient();
+    const options: TextModelOption[] = [];
+    for await (const model of client.models.list({ limit: 100 }, { timeout: 8000, maxRetries: 0 })) {
+      options.push({ id: model.id, label: model.display_name || modelLabel(model.id) });
+    }
+    if (options.length === 0) return fallback;
+    modelListCache = { at: Date.now(), options };
+    return options;
+  } catch {
+    return fallback;
+  }
+}
+
+/**
+ * How a model is asked to answer without a long think first.
+ *
+ * Thinking is turned OFF where a model allows it, so drafting streams text
+ * immediately and a short budget is spent on the answer. Models differ:
+ *
+ *   off      `{type: "disabled"}` — Opus 5, Sonnet 5, and the 4.x Opus and
+ *            Sonnet models; or `{type: "between_tools"}`, Sonnet 5.5's way of
+ *            saying the same (it rejects "disabled").
+ *   default  Haiku and older: no thinking unless asked, so nothing is sent.
+ *   light    Thinking cannot be turned off — Opus 5.5, Fable — so effort is
+ *            set low and the token budget gets room for the thinking, which
+ *            counts against it; without that room a short answer is cut off.
+ *   plain    As light, for a model that also rejects `effort`.
+ *
+ * A MODEL THIS CODE HAS NEVER SEEN starts as light, which every current model
+ * accepts. And if a model rejects its plan — a future one that stops accepting
+ * "disabled", say — the call is made once more with the next plan down, and
+ * that plan is remembered for the model. The dropdown offers whatever
+ * Anthropic releases (see `availableTextModels`), so this cannot be a list
+ * that has to be kept up to date by hand.
+ */
+type ThinkingPlan =
+  | { kind: "off"; thinking: { type: "disabled" } | { type: "between_tools" } }
+  | { kind: "default" }
+  | { kind: "light" }
+  | { kind: "plain" };
+
+/** Output tokens added for a model that will think however it is asked. */
+const THINKING_ROOM = 4000;
+
+function defaultPlan(model: string): ThinkingPlan {
+  if (/haiku|claude-3/.test(model)) return { kind: "default" };
+  if (/^claude-sonnet-5-5(-\d{8})?$/.test(model)) return { kind: "off", thinking: { type: "between_tools" } };
+  if (/^claude-(opus|sonnet)-(5|4(-\d+)?)(-\d{8})?$/.test(model)) {
+    return { kind: "off", thinking: { type: "disabled" } };
+  }
+  return { kind: "light" };
+}
+
+const learnedPlans = new Map<string, ThinkingPlan>();
+
+/** The plan to try after `plan` was rejected with `message`, or null to give up. */
+function nextPlan(plan: ThinkingPlan, message: string): ThinkingPlan | null {
+  if (plan.kind === "off" && /thinking/i.test(message)) return { kind: "light" };
+  if (plan.kind === "light" && /effort/i.test(message)) return { kind: "plain" };
+  return null;
+}
+
+/** The request fields a plan sets: thinking, effort, and the output budget. */
+function planFields(plan: ThinkingPlan, maxTokens: number) {
+  switch (plan.kind) {
+    case "off":
+      // `between_tools` is newer than this SDK's types; the API takes it.
+      return { thinking: plan.thinking as unknown as Anthropic.ThinkingConfigParam, effort: undefined, maxTokens };
+    case "default":
+      return { thinking: undefined, effort: undefined, maxTokens };
+    case "light":
+      return { thinking: undefined, effort: "low" as const, maxTokens: maxTokens + THINKING_ROOM };
+    case "plain":
+      return { thinking: undefined, effort: undefined, maxTokens: maxTokens + THINKING_ROOM };
+  }
+}
+
+/** Run a call with the model's plan, falling back once if the model rejects it. */
+async function withThinkingPlan<T>(model: string, run: (plan: ThinkingPlan) => Promise<T>): Promise<T> {
+  const plan = learnedPlans.get(model) ?? defaultPlan(model);
+  try {
+    return await run(plan);
+  } catch (error) {
+    const next = error instanceof Anthropic.BadRequestError ? nextPlan(plan, error.message) : null;
+    if (!next) throw error;
+    learnedPlans.set(model, next);
+    return run(next);
+  }
+}
+
+/** A safety decline arrives as a normal reply with nothing in it; say so. */
+function refused(stopReason: string | null): never | void {
+  if (stopReason === "refusal") {
+    throw new Error("Claude declined this request (a safety filter). Try again, or choose another model in Settings.");
+  }
 }
 
 /** Web search tool version valid across all current models (incl. Haiku). */
@@ -249,27 +364,29 @@ export async function runJson<T>(params: {
   > => {
     const client = await anthropicClient();
     const startedAt = performance.now();
-    const msg = await client.messages.create({
-      model: params.model,
-      max_tokens: maxTokens,
-      ...(thinkingParam(params.model)
-        ? { thinking: thinkingParam(params.model) }
-        : {}),
-      system: cachedSystem(params.system, { cache: params.cache, extraLast: JSON_CONTRACT }),
-      ...(params.webSearch ? { tools: [webSearchTool(typeof params.webSearch === "object" ? params.webSearch.maxUses : 5)] } : {}),
-      output_config: {
-        format: {
-          type: "json_schema",
-          schema: params.schema,
+    const msg = await withThinkingPlan(params.model, (plan) => {
+      const fields = planFields(plan, maxTokens);
+      return client.messages.create({
+        model: params.model,
+        max_tokens: fields.maxTokens,
+        ...(fields.thinking ? { thinking: fields.thinking } : {}),
+        system: cachedSystem(params.system, { cache: params.cache, extraLast: JSON_CONTRACT }),
+        ...(params.webSearch ? { tools: [webSearchTool(typeof params.webSearch === "object" ? params.webSearch.maxUses : 5)] } : {}),
+        output_config: {
+          format: {
+            type: "json_schema",
+            schema: params.schema,
+          },
+          ...(fields.effort ? { effort: fields.effort } : {}),
         },
-      },
-      messages: [
-        {
-          role: "user",
-          content: userContent(extra ? `${params.task}\n\n${extra}` : params.task, params.images),
-        },
-      ],
-    }, { timeout: params.timeoutMs ?? 120000, maxRetries: 0 });
+        messages: [
+          {
+            role: "user",
+            content: userContent(extra ? `${params.task}\n\n${extra}` : params.task, params.images),
+          },
+        ],
+      }, { timeout: params.timeoutMs ?? 120000, maxRetries: 0 });
+    });
 
     await logUsage({
       projectId: params.projectId,
@@ -281,6 +398,7 @@ export async function runJson<T>(params: {
       schemaRetryCount: retries,
     });
 
+    refused(msg.stop_reason);
     const raw = extractJson<unknown>(textOf(params.webSearch ? afterLastSearch(msg.content) : msg.content));
     if (raw === null) {
       if (msg.stop_reason === "max_tokens") return { truncated: true, usage: msg.usage };
@@ -349,22 +467,24 @@ export async function streamText(params: {
 }): Promise<{ text: string; usage: Usage }> {
   const client = await anthropicClient();
   const startedAt = performance.now();
-  const stream = client.messages.stream({
-    model: params.model,
-    max_tokens: params.maxTokens,
-    ...(thinkingParam(params.model)
-      ? { thinking: thinkingParam(params.model) }
-      : {}),
-    // Two cache breakpoints on the layered system prompt so the 3 drafts and
-    // every refine of a project read the shared prefix at ~0.1x input cost.
-    // (Ephemeral cache metadata can slightly delay the first streamed token on
-    // some provider/model combos; accepted here for the caching win.)
-    system: cachedSystem(params.system),
-    messages: params.messages ?? [{ role: "user", content: params.task ?? "" }],
+  // A rejected plan fails before any text arrives, so a retry repeats nothing.
+  const final = await withThinkingPlan(params.model, (plan) => {
+    const fields = planFields(plan, params.maxTokens);
+    const stream = client.messages.stream({
+      model: params.model,
+      max_tokens: fields.maxTokens,
+      ...(fields.thinking ? { thinking: fields.thinking } : {}),
+      ...(fields.effort ? { output_config: { effort: fields.effort } } : {}),
+      // Two cache breakpoints on the layered system prompt so the 3 drafts and
+      // every refine of a project read the shared prefix at ~0.1x input cost.
+      // (Ephemeral cache metadata can slightly delay the first streamed token on
+      // some provider/model combos; accepted here for the caching win.)
+      system: cachedSystem(params.system),
+      messages: params.messages ?? [{ role: "user", content: params.task ?? "" }],
+    });
+    stream.on("text", (delta) => params.onDelta(delta));
+    return stream.finalMessage();
   });
-
-  stream.on("text", (delta) => params.onDelta(delta));
-  const final = await stream.finalMessage();
   await logUsage({
     projectId: params.projectId,
     stage: params.stage,
@@ -373,6 +493,7 @@ export async function streamText(params: {
     promptVersion: PROMPT_VERSION,
     latencyMs: Math.round(performance.now() - startedAt),
   });
+  refused(final.stop_reason);
   return { text: textOf(final.content), usage: final.usage };
 }
 
@@ -388,14 +509,16 @@ export async function runText(params: {
 }): Promise<{ text: string; usage: Usage }> {
   const client = await anthropicClient();
   const startedAt = performance.now();
-  const msg = await client.messages.create({
-    model: params.model,
-    max_tokens: params.maxTokens,
-    ...(thinkingParam(params.model)
-      ? { thinking: thinkingParam(params.model) }
-      : {}),
-    ...(params.system ? { system: cachedSystem(params.system) } : {}),
-    messages: [{ role: "user", content: userContent(params.task, params.images) }],
+  const msg = await withThinkingPlan(params.model, (plan) => {
+    const fields = planFields(plan, params.maxTokens);
+    return client.messages.create({
+      model: params.model,
+      max_tokens: fields.maxTokens,
+      ...(fields.thinking ? { thinking: fields.thinking } : {}),
+      ...(fields.effort ? { output_config: { effort: fields.effort } } : {}),
+      ...(params.system ? { system: cachedSystem(params.system) } : {}),
+      messages: [{ role: "user", content: userContent(params.task, params.images) }],
+    });
   });
   await logUsage({
     projectId: params.projectId,
@@ -405,5 +528,6 @@ export async function runText(params: {
     promptVersion: PROMPT_VERSION,
     latencyMs: Math.round(performance.now() - startedAt),
   });
+  refused(msg.stop_reason);
   return { text: textOf(msg.content), usage: msg.usage };
 }

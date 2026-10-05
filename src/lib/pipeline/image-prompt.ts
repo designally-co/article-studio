@@ -35,7 +35,8 @@ export async function generateImagePromptCore(
 ): Promise<DraftedImagePrompt> {
   const loaded = await loadProject(projectId);
   if (!loaded) throw new Error("Project not found");
-  const { drafting } = await getModels();
+  // The image model, chosen in Settings apart from the one articles are written with.
+  const { image: drafting } = await getModels();
   const selected = loaded.drafts.find((d) => d.isSelected) ?? loaded.drafts[0];
   const article = selected?.contentMd.trim() ?? "";
   if (!article) throw new Error("No finished article is available for image planning.");

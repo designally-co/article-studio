@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import { ChevronDown } from "lucide-react";
 import { saveModelSettingsAction } from "./actions";
-import { DEFAULT_RESEARCH_MODEL, DEFAULT_DRAFTING_MODEL } from "@/lib/models";
+import { DEFAULT_RESEARCH_MODEL, DEFAULT_DRAFTING_MODEL, type TextModelOption } from "@/lib/models";
 import { Button } from "@/components/ui/button";
 import { Section } from "./section";
 import { Label } from "@/components/ui/label";
@@ -37,7 +37,7 @@ export function ModelSelectionCard({
   textModels,
   settings,
 }: {
-  textModels: string[];
+  textModels: TextModelOption[];
   settings: Record<string, string>;
 }) {
   /* Falling back to `textModels[0]` put BOTH fields on the same model whenever
@@ -49,15 +49,31 @@ export function ModelSelectionCard({
   const [drafting, setDrafting] = useState(
     settings["model.drafting"] ?? DEFAULT_DRAFTING_MODEL
   );
+  /* Empty means "the same as drafting", which is what wrote image prompts
+     before this had its own setting — and stays true if drafting changes. */
+  const [image, setImage] = useState(settings["model.image"] ?? "");
+  const [saving, startSaving] = useTransition();
 
   return (
     <Section
       title="Model selection"
-      description="Models for fast and careful work"
+      description="Models for fast work, careful writing, and image prompts. The list comes from Anthropic, so new models appear here by themselves."
     >
-      <form action={saveModelSettingsAction} className="grid gap-5">
+      {/* SUBMITTED BY HAND, NOT `action=`. A form action resets the form when
+          it finishes, and a reset puts every select back on its first option
+          — the saved choice stayed saved, but all three fields showed the
+          top of the list until the sheet was reopened. */}
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          const data = new FormData(event.currentTarget);
+          startSaving(() => saveModelSettingsAction(data));
+        }}
+        className="grid gap-5"
+      >
         <input type="hidden" name="research" value={research} />
         <input type="hidden" name="drafting" value={drafting} />
+        <input type="hidden" name="image" value={image} />
 
         {/* SIDE BY SIDE: two parallel choices of the same kind, read as a pair.
             Stacked on a phone, where half the sheet is too narrow for a model
@@ -77,12 +93,25 @@ export function ModelSelectionCard({
             onChange={setDrafting}
             options={textModels}
           />
+          {/* Its own row: it reads a reference photograph and briefs a
+              picture, and the best model for that may not be the one every
+              article is drafted with. */}
+          <ModelField
+            id="model-image"
+            label="Image prompts"
+            value={image}
+            onChange={setImage}
+            options={textModels}
+            sameAs={{ label: "Same as drafting" }}
+          />
         </div>
 
         {/* On the right, where every other sheet puts its submit. It saves
-            these two models and nothing else in the sheet. */}
+            these three models and nothing else in the sheet. */}
         <div className="flex justify-end">
-          <Button type="submit">Save models</Button>
+          <Button type="submit" disabled={saving}>
+            {saving ? "Saving…" : "Save models"}
+          </Button>
         </div>
       </form>
     </Section>
@@ -95,12 +124,15 @@ function ModelField({
   value,
   onChange,
   options,
+  sameAs,
 }: {
   id: string;
   label: string;
   value: string;
   onChange: (next: string) => void;
-  options: string[];
+  options: TextModelOption[];
+  /** An extra first choice that saves nothing of its own, shown with this label. */
+  sameAs?: { label: string };
 }) {
   return (
     <div className="grid gap-2">
@@ -115,9 +147,10 @@ function ModelField({
           onChange={(event) => onChange(event.target.value)}
           className={FIELD}
         >
+          {sameAs && <option value="">{sameAs.label}</option>}
           {options.map((model) => (
-            <option key={model} value={model}>
-              {model}
+            <option key={model.id} value={model.id}>
+              {model.label}
             </option>
           ))}
         </select>
