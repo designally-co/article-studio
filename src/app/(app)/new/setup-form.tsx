@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { ArrowUp, LoaderCircle, Maximize2, Minimize2, RefreshCw, Sparkle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PageHeading } from "@/components/page-heading";
@@ -22,6 +23,7 @@ export type PillarGroup = {
 type Selection = { pillarId: string; directionId: string };
 
 export function SetupForm({ pillars, anthropicReady }: { pillars: PillarGroup[]; anthropicReady: boolean }) {
+  const router = useRouter();
   const [pending, setPending] = useState(false);
   const [articleInput, setArticleInput] = useState("");
   const [inputExpanded, setInputExpanded] = useState(false);
@@ -156,7 +158,10 @@ export function SetupForm({ pillars, anthropicReady }: { pillars: PillarGroup[];
         data.set("chosenSearchIntent", topic.searchIntent || "");
         data.set("chosenResearchSources", JSON.stringify(topic.researchSources || []));
       }
-      await createProjectAction(data);
+      const created = await createProjectAction(data);
+      if (!created.ok) throw new Error(created.message);
+      // Still pending: the button keeps its spinner until the article page opens.
+      router.push(created.href);
     } catch (reason) {
       setPending(false);
       setPickerOpen(true);
