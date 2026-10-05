@@ -57,7 +57,7 @@ export function WorkProgress({
   const compact = size === "compact";
 
   return (
-    <div role="status" className={compact ? "" : "text-center"}>
+    <div role="status" className="text-center">
       {art && (
         // Keyed, so the next drawing fades in when the step changes.
         <div key={art} className={`cs-step-in ${compact ? "mb-3" : "mb-6"}`}>
