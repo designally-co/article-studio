@@ -394,6 +394,33 @@ function ContentPanel({
   );
 }
 
+/*
+ * The image stage's waits, shown in the picture's place while they run (see
+ * WorkProgress). On elapsed time, like every wait here; the seconds are what
+ * each usually takes. Images are generated side by side, so one or four take
+ * about as long.
+ */
+const GENERATE_STEPS = [
+  { at: 0, label: "Sending the brief", art: "paint" },
+  { at: 3, label: "Painting the image", art: "paint" },
+  { at: 18, label: "Adding the finishing touches", art: "paint" },
+] as const;
+const AUTO_DRAFT_STEPS = [
+  { at: 0, label: "Reading the article", art: "brief" },
+  { at: 6, label: "Choosing the picture", art: "brief" },
+  { at: 12, label: "Writing the prompt", art: "brief" },
+] as const;
+const FIND_STEPS = [
+  { at: 0, label: "Reading the sources", art: "photos" },
+  { at: 8, label: "Searching photo libraries", art: "photos" },
+  { at: 20, label: "Choosing the best match", art: "photos" },
+] as const;
+const UPSCALE_STEPS = [
+  { at: 0, label: "Upscaling the picture", art: "enlarge" },
+  { at: 15, label: "Making it the cover", art: "enlarge" },
+] as const;
+const COVER_STEPS = [{ at: 0, label: "Making it the cover", art: "enlarge" }] as const;
+
 function ImagePanel({
   projectId,
   title,
@@ -494,6 +521,8 @@ function ImagePanel({
      see @/lib/pipeline/sourced-cover. */
   const [credits, setCredits] = useState<Record<string, CoverCredit>>(coverCredits);
   const [coverBusy, setCoverBusy] = useState(false);
+  /** Whether the cover being made is being upscaled first, which is the long part. */
+  const [coverUpscaling, setCoverUpscaling] = useState(false);
   /* How far the phone's sheet has risen. The stage does not scroll, so the
      content moves by exactly that much rather than being covered — a tuned
      constant clears a sheet holding two thumbnails and hides the dock behind
@@ -804,6 +833,7 @@ function ImagePanel({
       chooseCover(already.id);
       return;
     }
+    setCoverUpscaling(needsUpscale(item));
     setCoverBusy(true);
     setError(null);
     try {
@@ -981,7 +1011,23 @@ function ImagePanel({
               dock stays on the floor of the stage whether there is one image or
               none. */}
           <div ref={featureAreaRef} className="flex min-h-0 flex-1 items-center justify-center py-6">
-            {featured ? (
+            {/* A WAIT TAKES THE PICTURE'S PLACE while it runs, keyed so each
+                starts its own clock; the picture, or the new one, returns when
+                it ends. */}
+            {busy === "gen" ? (
+              <WorkProgress key="generate" steps={GENERATE_STEPS} typicalSeconds={25} />
+            ) : busy === "prompt" ? (
+              <WorkProgress key="auto-draft" steps={AUTO_DRAFT_STEPS} typicalSeconds={20} />
+            ) : finding ? (
+              <WorkProgress key="find" steps={FIND_STEPS} typicalSeconds={30} />
+            ) : coverBusy ? (
+              coverUpscaling ? (
+                <WorkProgress key="upscale" steps={UPSCALE_STEPS} typicalSeconds={20} />
+              ) : (
+                // A moment's work: the step, and no countdown.
+                <WorkProgress key="cover" steps={COVER_STEPS} />
+              )
+            ) : featured ? (
               <GeneratedImage
                 key={featured.id}
                 img={featured}

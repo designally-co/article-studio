@@ -1067,6 +1067,16 @@
   animation: cs-art-travel 2.8s linear infinite both;
 }
 
+@keyframes cs-art-grow {
+  0%, 15% { transform: scale(0.62); }
+  60%, 100% { transform: scale(1); }
+}
+.cs-art-grow {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: cs-art-grow 2.4s var(--ease-out) infinite alternate both;
+}
+
 @keyframes cs-art-caret {
   50% { opacity: 0; }
 }
@@ -1083,7 +1093,8 @@
   .cs-art-write,
   .cs-art-caret,
   .cs-art-rise,
-  .cs-art-travel {
+  .cs-art-travel,
+  .cs-art-grow {
     animation: none;
   }
   /* Without motion the ring would sit on the dot as a solid blob. */
