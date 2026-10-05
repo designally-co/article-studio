@@ -29,6 +29,7 @@ import {
   deleteImageReferenceAction,
   findReferenceImagesAction,
   coverFromReferenceAction,
+  reimagineReferencePromptAction,
   setCoverImageAction,
   updateCoverCreditAction,
   uploadImageReferenceAction,
@@ -746,6 +747,44 @@ function ImagePanel({
     }
   }
 
+  /* OUR OWN PICTURE, FROM THEIRS. EXPERIMENT. Writes a prompt that keeps what
+     kind of picture the reference is and changes what makes it someone
+     else's — colours, brand names, logos, text, faces, details — and leaves it
+     in the box for the editor to read, edit and generate. Generated, so it
+     needs no credit. See @/lib/pipeline/reimagined-cover. */
+  async function reimagineReference(item: UploadedReferenceView) {
+    setBusy("prompt");
+    setError(null);
+    try {
+      const result = await reimagineReferencePromptAction(projectId, item.id);
+      if (!result.ok) {
+        setError(result.message);
+        return;
+      }
+      setChosenReferenceId(item.id);
+      setPrompt(result.prompt);
+      // One prompt for every image: the drafted set belongs to another brief.
+      setDraftedPrompt("");
+      setVariants([]);
+      const notes = [
+        result.ownedElements.length > 0
+          ? `Prompt written. It replaces ${result.ownedElements.join(", ")}.`
+          : "Prompt written.",
+      ];
+      if (!selectedOption?.capabilities.referenceImages && referenceCapableSibling) {
+        setOptionId(referenceCapableSibling.optionId);
+        setCount((current) => Math.min(current, referenceCapableSibling.capabilities.maxVariations));
+        notes.push(`Switched to ${referenceCapableSibling.label}, which reads the picture.`);
+      }
+      notes.push("Check it, then generate.");
+      setFindNote(notes.join(" "));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not write a prompt from that picture.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function generate() {
     if (!prompt.trim() || !optionId) return;
     setBusy("gen");
@@ -1240,6 +1279,15 @@ function ImagePanel({
                   ) : (
                     <>too small for a cover even upscaled, generate from it</>
                   )}
+                  {" · "}
+                  <button
+                    type="button"
+                    onClick={() => void reimagineReference(activeReference)}
+                    disabled={coverBusy || busy !== null}
+                    className="font-medium text-ink underline decoration-line-strong underline-offset-2 transition-colors duration-(--duration-fast) hover:decoration-current focus-visible:outline-none focus-visible:shadow-[var(--shadow-focus)] disabled:opacity-50"
+                  >
+                    {busy === "prompt" ? "Writing the prompt…" : "Reimagine as our own"}
+                  </button>
                 </>
               )}
             </p>

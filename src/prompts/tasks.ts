@@ -421,3 +421,37 @@ Respond as JSON:
   ]
 }`;
 }
+
+/**
+ * Brief an image model to make OUR picture from someone else's.
+ *
+ * The cited page's picture is the right subject, but it is the studio's work:
+ * running it means crediting it, and two articles citing one page ran the same
+ * one. This keeps what kind of picture it is and changes what makes it theirs.
+ * It must come out a different picture, not a recoloured copy — a copy in new
+ * colours is still their picture, and leaving the credit off would not change
+ * that.
+ */
+export function reimagineCoverTask(params: { title: string; angle?: string }): string {
+  return `## Task: brief a new cover image, using a picture from a page this article cites as the guide
+
+A PICTURE IS ATTACHED. It belongs to someone else. The article's cover must be our own image. It may take the IDEA of this picture — what kind of thing it shows, and roughly how it is arranged — and nothing else. An image-editing model will receive the picture and your prompt.
+
+Article title: ${params.title}${params.angle ? `\nAngle: ${params.angle}` : ""}
+
+Write:
+
+\`seen\`: one sentence. What the picture actually shows, and how it is arranged.
+
+\`ownedElements\`: every element in it that someone owns or that identifies someone — brand names, logos, wordmarks, product names, any readable text or numbers, mascots and characters, a recognisable product's design, a recognisable artwork or photograph inside the picture, a real person's face. An empty list only if there truly are none.
+
+\`palette\`: the new colours, three to five by name. Clearly different from the picture's own colours, and right for this article. Not the brand colours of any company.
+
+\`prompt\`: the instruction for the image-editing model, as one paragraph in English. In it:
+- Say what to KEEP: the kind of subject and the general type of composition only — "a grid of square photo tiles", "a product on a table seen from above", "a poster on a wall".
+- Say what to CHANGE, and change a lot: every colour to the new palette; each owned element replaced by a named generic, unbranded equivalent; any person replaced by a different, unrecognisable person; the specific objects, poses, angles and details swapped for new ones of the same kind, so that no single part of the result is the same as the original.
+- Say there must be no text, letters, numbers, logos or brand marks anywhere.
+- The result must read as a different picture of the same kind of thing — something a reader who knows the original would not mistake for it.
+
+Respond with JSON only.`;
+}

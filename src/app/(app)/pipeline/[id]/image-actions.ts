@@ -16,6 +16,7 @@ import {
 } from "@/lib/pipeline/images";
 import type { GeneratedImageView, GenerationRunResult, UploadedReferenceView } from "@/lib/pipeline/views";
 import { updateCoverCreditCore, coverFromReferenceCore } from "@/lib/pipeline/sourced-cover";
+import { writeReimaginePromptCore } from "@/lib/pipeline/reimagined-cover";
 import type { CoverCredit } from "@/db/schema";
 import type { ImageAspectRatio } from "@/lib/image/providers";
 
@@ -173,6 +174,30 @@ export async function coverFromReferenceAction(
     return {
       ok: false,
       message: cause instanceof Error ? cause.message : "Could not make that photograph the cover.",
+    };
+  }
+}
+
+/**
+ * Write a prompt that makes a new picture from a reference — same kind of
+ * picture, new colours, no brand names, logos or text — for the editor to
+ * generate from. EXPERIMENT; see @/lib/pipeline/reimagined-cover.
+ */
+export async function reimagineReferencePromptAction(
+  projectId: string,
+  referenceId: string
+): Promise<
+  | { ok: true; prompt: string; ownedElements: string[]; palette: string }
+  | { ok: false; message: string }
+> {
+  await requireUser();
+  try {
+    const { prompt, ownedElements, palette } = await writeReimaginePromptCore(projectId, referenceId);
+    return { ok: true, prompt, ownedElements, palette };
+  } catch (cause) {
+    return {
+      ok: false,
+      message: cause instanceof Error ? cause.message : "Could not write a prompt from that picture.",
     };
   }
 }

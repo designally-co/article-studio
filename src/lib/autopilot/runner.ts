@@ -18,6 +18,7 @@ import { generateDraftCore } from "@/lib/pipeline/draft";
 import { generateImagePromptCore } from "@/lib/pipeline/image-prompt";
 import { findReferenceImagesCore, generateImagesCore } from "@/lib/pipeline/images";
 import { coverFromReferenceCore } from "@/lib/pipeline/sourced-cover";
+import { writeReimaginePromptCore } from "@/lib/pipeline/reimagined-cover";
 import { publishToHubCore } from "@/lib/pipeline/publish";
 import { imageGenerationOptions } from "@/lib/image/registry";
 import { isHubConfigured } from "@/lib/hub";
@@ -486,6 +487,27 @@ async function runReferenceStep(projectId: string, count: number) {
     found.references.find((item) => found.subjectIds?.includes(item.id)) ??
     found.references.find((item) => item.origin === "article_source");
   const fromLibrary = found.references.find((item) => item.origin === "open_license");
+
+  /* EXPERIMENT (branch claude/reimagined-cover): the cited page's picture is
+     not run as it is. It becomes the guide for a picture of our own — same
+     kind of picture, new colours, no brand names, logos, text or faces — which
+     the image step generates, and which needs no credit. If that prompt cannot
+     be written, the order below carries on as before. */
+  if (fromPage) {
+    const reimagined = await writeReimaginePromptCore(projectId, fromPage.id).catch(() => null);
+    const options = reimagined ? await imageGenerationOptions() : [];
+    const option = options.find((o) => o.capabilities.referenceImages);
+    if (reimagined && option) {
+      await writeImageWork(projectId, {
+        prompt: reimagined.prompt,
+        variantPrompts: [],
+        referenceId: fromPage.id,
+        optionId: option.optionId,
+      });
+      return;
+    }
+  }
+
   for (const candidate of [fromPage, fromLibrary]) {
     if (!candidate) continue;
     try {
