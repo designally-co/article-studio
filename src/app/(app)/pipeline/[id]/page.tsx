@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { articlesStartedBefore, coverImage, loadProject } from "@/lib/projects";
+import { articlesStartedBefore, articleTitle, coverImage, loadProject } from "@/lib/projects";
 import { rotateAspectRatio } from "@/lib/autopilot/views";
 import { publishMetadata } from "@/lib/publish-meta";
 import { deDash } from "@/lib/text";
@@ -28,7 +28,7 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { id } = await params;
   const loaded = await loadProject(id);
-  const name = loaded?.project.selectedTopic?.title?.trim();
+  const name = loaded ? articleTitle(loaded) : undefined;
   return { title: `${name || "Untitled article"} · Article Studio` };
 }
 
@@ -62,7 +62,7 @@ export default async function PipelinePage({
 
   const anthropicReady = await isAnthropicConfigured();
   const imageOptions = await imageGenerationOptions();
-  const title = loaded.project.selectedTopic?.title;
+  const title = articleTitle(loaded);
   const published = loaded.project.status === "published";
   // Only one image reaches the Hub, and `coverImage` is the single answer to
   // which one — shared with publishing, which used to decide separately and

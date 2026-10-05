@@ -36,6 +36,7 @@ import {
 import { IconDownload, IconTrash } from "@/components/icons";
 import { ImageSettingsMenu, ReferenceMenu } from "./image-dock-menus";
 import { AccentOrb } from "@/components/accent-orb";
+import { WorkProgress } from "@/components/work-progress";
 import type { ImageAspectRatio } from "@/lib/image/providers";
 import type { GeneratedImageView, UploadedReferenceView } from "@/lib/pipeline/views";
 import type { CoverCredit } from "@/db/schema";
@@ -393,6 +394,33 @@ function ContentPanel({
   );
 }
 
+/*
+ * The image stage's waits, shown in the picture's place while they run (see
+ * WorkProgress). On elapsed time, like every wait here; the seconds are what
+ * each usually takes. Images are generated side by side, so one or four take
+ * about as long.
+ */
+const GENERATE_STEPS = [
+  { at: 0, label: "Sending the brief", art: "paint" },
+  { at: 3, label: "Painting the image", art: "paint" },
+  { at: 18, label: "Adding the finishing touches", art: "paint" },
+] as const;
+const AUTO_DRAFT_STEPS = [
+  { at: 0, label: "Reading the article", art: "brief" },
+  { at: 6, label: "Choosing the picture", art: "brief" },
+  { at: 12, label: "Writing the prompt", art: "brief" },
+] as const;
+const FIND_STEPS = [
+  { at: 0, label: "Reading the sources", art: "photos" },
+  { at: 8, label: "Searching photo libraries", art: "photos" },
+  { at: 20, label: "Choosing the best match", art: "photos" },
+] as const;
+const UPSCALE_STEPS = [
+  { at: 0, label: "Upscaling the picture", art: "enlarge" },
+  { at: 15, label: "Making it the cover", art: "enlarge" },
+] as const;
+const COVER_STEPS = [{ at: 0, label: "Making it the cover", art: "enlarge" }] as const;
+
 function ImagePanel({
   projectId,
   title,
@@ -493,6 +521,8 @@ function ImagePanel({
      see @/lib/pipeline/sourced-cover. */
   const [credits, setCredits] = useState<Record<string, CoverCredit>>(coverCredits);
   const [coverBusy, setCoverBusy] = useState(false);
+  /** Whether the cover being made is being upscaled first, which is the long part. */
+  const [coverUpscaling, setCoverUpscaling] = useState(false);
   /* How far the phone's sheet has risen. The stage does not scroll, so the
      content moves by exactly that much rather than being covered — a tuned
      constant clears a sheet holding two thumbnails and hides the dock behind
@@ -803,6 +833,7 @@ function ImagePanel({
       chooseCover(already.id);
       return;
     }
+    setCoverUpscaling(needsUpscale(item));
     setCoverBusy(true);
     setError(null);
     try {
@@ -980,7 +1011,23 @@ function ImagePanel({
               dock stays on the floor of the stage whether there is one image or
               none. */}
           <div ref={featureAreaRef} className="flex min-h-0 flex-1 items-center justify-center py-6">
-            {featured ? (
+            {/* A WAIT TAKES THE PICTURE'S PLACE while it runs, keyed so each
+                starts its own clock; the picture, or the new one, returns when
+                it ends. */}
+            {busy === "gen" ? (
+              <WorkProgress key="generate" steps={GENERATE_STEPS} typicalSeconds={25} />
+            ) : busy === "prompt" ? (
+              <WorkProgress key="auto-draft" steps={AUTO_DRAFT_STEPS} typicalSeconds={20} />
+            ) : finding ? (
+              <WorkProgress key="find" steps={FIND_STEPS} typicalSeconds={30} />
+            ) : coverBusy ? (
+              coverUpscaling ? (
+                <WorkProgress key="upscale" steps={UPSCALE_STEPS} typicalSeconds={20} />
+              ) : (
+                // A moment's work: the step, and no countdown.
+                <WorkProgress key="cover" steps={COVER_STEPS} />
+              )
+            ) : featured ? (
               <GeneratedImage
                 key={featured.id}
                 img={featured}
@@ -1806,16 +1853,15 @@ function PublishComposer({
 }
 
 /**
- * The steps a publish actually moves through, in order. As with preparation
- * there is no progress channel back — publishToHubAction is one call — so this
- * advances on elapsed time and the labels name work attempted, never a result
- * claimed. The cover upload really is conditional server-side (no image, or a
- * failed upload, does not block the publish), which is why its note says so.
+ * What a publish moves through, on elapsed time (see WorkProgress). It takes
+ * seconds — the Thai translation runs on the Hub after it answers — so the
+ * panel shows no countdown. The cover step is skipped server-side when there
+ * is no image; on a timer it simply passes.
  */
 const PUBLISH_STEPS = [
-  { at: 0, label: "Preparing the article", note: "Title, dek and body." },
-  { at: 2, label: "Uploading the cover", note: "Skipped if there is no image." },
-  { at: 6, label: "Sending it to the Hub", note: "Converting and saving." },
+  { at: 0, label: "Preparing the article", art: "assemble" },
+  { at: 2, label: "Uploading the cover", art: "upload" },
+  { at: 6, label: "Sending it to the Hub", art: "send" },
 ] as const;
 
 /**
@@ -1845,84 +1891,12 @@ function cmsUrlForHubPage(publicUrl: string): string | undefined {
   }
 }
 
-function PublishingPanel({ status }: { status: "draft" | "published" }) {
-  const [elapsed, setElapsed] = useState(0);
-
-  useEffect(() => {
-    const id = setInterval(() => setElapsed((s) => s + 1), 1000);
-    return () => clearInterval(id);
-  }, []);
-
-  // The last step holds until the action resolves and this panel unmounts, so
-  // the rail cannot show a finish the server has not reached.
-  let active = 0;
-  for (let i = 0; i < PUBLISH_STEPS.length; i++) if (elapsed >= PUBLISH_STEPS[i].at) active = i;
-
+/* The drawing, the step and the bar: a publish takes seconds, so no heading
+   and no countdown. */
+function PublishingPanel() {
   return (
-    <div className="rounded-2xl bg-sunken p-3.5" aria-live="polite">
-      <div className="flex items-center justify-between gap-3">
-        <p className="text-sm font-semibold text-ink">
-          {status === "published" ? "Publishing to the Hub" : "Saving a draft to the Hub"}
-        </p>
-        <span className="font-mono text-xs tabular-nums text-ink-3" aria-label={`${elapsed} seconds elapsed`}>
-          {`0:${String(elapsed % 60).padStart(2, "0")}`}
-        </span>
-      </div>
-
-      <ol className="mt-3 space-y-2.5">
-        {PUBLISH_STEPS.map((step, i) => {
-          const state = i < active ? "done" : i === active ? "active" : "pending";
-          return (
-            <li key={step.label} className="flex gap-3">
-              <span className="relative mt-[5px] flex size-2 shrink-0 items-center justify-center">
-                {state === "active" && (
-                  <span className="cs-ping absolute inline-flex size-2 rounded-full bg-accent" aria-hidden="true" />
-                )}
-                <span
-                  className="relative inline-flex size-2 rounded-full transition-all duration-(--duration-slow) ease-(--ease-spring)"
-                  style={{
-                    background:
-                      state === "pending" ? "transparent" : state === "done" ? "var(--ink-300)" : "var(--accent)",
-                    boxShadow: state === "pending" ? "inset 0 0 0 1.5px var(--ink-200)" : "none",
-                  }}
-                />
-              </span>
-              <span className="min-w-0 flex-1">
-                <span
-                  className="block text-xs font-medium transition-colors duration-(--duration-slow) ease-(--ease-spring)"
-                  style={{
-                    color:
-                      state === "pending"
-                        ? "var(--ink-400)"
-                        : state === "done"
-                          ? "var(--ink-secondary)"
-                          : "var(--accent-press)",
-                  }}
-                >
-                  {step.label}
-                </span>
-                {state === "active" && (
-                  <>
-                    <span className="mt-0.5 block text-[11px] leading-snug text-ink-3">{step.note}</span>
-                    {/* Indeterminate: there is no real percentage to report. */}
-                    <span
-                      className="mt-2 block h-[3px] w-full overflow-hidden rounded-full"
-                      style={{ background: "var(--accent-tint)" }}
-                      aria-hidden="true"
-                    >
-                      <span className="cs-sweep block h-full w-1/4 rounded-full" style={{ background: "var(--accent)" }} />
-                    </span>
-                  </>
-                )}
-              </span>
-            </li>
-          );
-        })}
-      </ol>
-
-      <p className="mt-3.5 border-t border-line pt-3 text-[11px] leading-relaxed text-ink-3">
-        Keep this tab open — it finishes here and shows you the link.
-      </p>
+    <div className="rounded-2xl bg-sunken p-3.5">
+      <WorkProgress steps={PUBLISH_STEPS} size="compact" />
     </div>
   );
 }
@@ -2107,7 +2081,7 @@ function PublishRail({
               disabled CTA left on screen was read as a frozen app rather than
               as work in progress. */}
           {busy ? (
-            <PublishingPanel status={busy} />
+            <PublishingPanel />
           ) : (
             <>
           <button

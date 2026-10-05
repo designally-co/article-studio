@@ -2,7 +2,7 @@ import "server-only";
 import { eq } from "drizzle-orm";
 import { getDb } from "@/db";
 import { projects } from "@/db/schema";
-import { coverImage, loadProject } from "@/lib/projects";
+import { articleTitle, coverImage, loadProject } from "@/lib/projects";
 import {
   isHubConfigured,
   publishArticleToHub,
@@ -92,7 +92,8 @@ export async function publishToHubCore(
   const loaded = await loadProject(projectId);
   if (!loaded) throw new Error("Project not found.");
 
-  const title = loaded.project.selectedTopic?.title?.trim();
+  // The draft's own title, as written and edited there — not the idea typed to start it.
+  const title = articleTitle(loaded);
   const draftMarkdown = (loaded.drafts.find((d) => d.isSelected) ?? loaded.drafts[0])?.contentMd?.trim();
   const { tags } = publishMetadata(loaded.category?.name);
 

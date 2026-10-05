@@ -1,6 +1,6 @@
 "use server";
 
-import { redirect } from "next/navigation";
+import { unstable_rethrow } from "next/navigation";
 import { eq } from "drizzle-orm";
 import { getDb } from "@/db";
 import { projects, categories } from "@/db/schema";
@@ -125,7 +125,31 @@ export async function inferArticleSetupAction(input: {
   };
 }
 
-export async function createProjectAction(formData: FormData) {
+/**
+ * Create the article and say where it lives.
+ *
+ * RETURNS THE ADDRESS, NOT A REDIRECT. This ended in `redirect()`, which works
+ * by throwing — and the form awaits it inside a try/catch, so the catch got
+ * the throw first and put "NEXT_REDIRECT" on screen in red for the moment
+ * before the navigation landed. The form now navigates itself, and a real
+ * failure comes back as a message: a thrown error is redacted in production.
+ */
+export async function createProjectAction(
+  formData: FormData,
+): Promise<{ ok: true; href: string } | { ok: false; message: string }> {
+  try {
+    return { ok: true, href: await createProject(formData) };
+  } catch (reason) {
+    // Signed out meanwhile: `requireUser` redirects to /login, and that one must go through.
+    unstable_rethrow(reason);
+    return {
+      ok: false,
+      message: reason instanceof Error ? reason.message : "Could not create the article. Choose a direction and try again.",
+    };
+  }
+}
+
+async function createProject(formData: FormData): Promise<string> {
   const user = await requireUser();
   const db = await getDb();
 
@@ -212,5 +236,5 @@ export async function createProjectAction(formData: FormData) {
     .returning();
 
   const nextStage = selectedTopic ? 3 : 2;
-  redirect(`/pipeline/${project.id}?stage=${nextStage}`);
+  return `/pipeline/${project.id}?stage=${nextStage}`;
 }
