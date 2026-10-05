@@ -35,10 +35,15 @@ function DraftProgress({ title }: { title: string }) {
   return (
     /* Centred, because nothing sits beside it: there is nothing to act on yet.
        Vertically too: the height is the screen less what sits above and below
-       it — the 48px menu line on a phone, or the 56px stepper row from `lg`,
-       plus StageShell's own top and bottom padding — so the card's middle
-       lands on the screen's middle instead of near the top. */
-    <div className="flex min-h-[calc(100dvh-10rem)] items-center sm:min-h-[calc(100dvh-13rem)] lg:min-h-[calc(100dvh-13.5rem)]">
+       it — the 48px menu line below `lg` (the page shows no stepper at this
+       stage), plus StageShell's own top and bottom padding — so the card's
+       middle lands on the screen's middle instead of near the top.
+
+       From `lg` there is no menu line to balance StageShell's padding, 48px
+       above against 112 below, so the box takes the screen less 48 on each
+       side and gives the extra 64 back below with a negative margin: centred,
+       and still no taller than the screen. */
+    <div className="flex min-h-[calc(100dvh-10rem)] items-center sm:min-h-[calc(100dvh-13rem)] lg:-mb-16 lg:min-h-[calc(100dvh-6rem)]">
       <div className="cs-bezel mx-auto w-full max-w-xl">
         <div className="cs-bezel-core px-6 py-9 sm:px-10 sm:py-11">
           <WorkProgress steps={PHASES} typicalSeconds={TYPICAL_SECONDS} heading={title} />

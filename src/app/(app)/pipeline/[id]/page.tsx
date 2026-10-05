@@ -123,15 +123,20 @@ export default async function PipelinePage({
           the top, so a disagreement here would show as a step of background
           against the button while scrolling. Above `lg` the rail is a sidebar,
           there is no button, and the row goes back to its own line. */}
-      <div className="sticky top-0 z-(--z-sticky) mx-auto -mt-12 w-full max-w-7xl px-3 py-2 sm:px-8 lg:mt-0 lg:px-12 lg:py-3 xl:px-16">
-        <TopBlur />
-        <Stepper
-          projectId={id}
-          current={current}
-          reached={reached}
-          finalizeView={finalizeView}
-        />
-      </div>
+      {/* Not while the draft is being prepared: nothing in it can be pressed
+          until there is a draft, so it was chrome over a screen whose only job
+          is to say "wait". */}
+      {current > 3 && (
+        <div className="sticky top-0 z-(--z-sticky) mx-auto -mt-12 w-full max-w-7xl px-3 py-2 sm:px-8 lg:mt-0 lg:px-12 lg:py-3 xl:px-16">
+          <TopBlur />
+          <Stepper
+            projectId={id}
+            current={current}
+            reached={reached}
+            finalizeView={finalizeView}
+          />
+        </div>
+      )}
 
       <div className="flex-1">
         {current <= 3 && (
