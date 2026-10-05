@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { WorkArt, type WorkArtKind } from "./work-art";
 
 /**
  * A wait, shown as one line at a time.
@@ -20,7 +21,12 @@ import { useEffect, useState } from "react";
  * indeterminate throughout (.cs-sweep): a bar parked at 95% is worse than one
  * that never claimed a number.
  */
-export type WorkStep = { at: number; label: string };
+export type WorkStep = {
+  at: number;
+  label: string;
+  /** A small drawing of the step (components/work-art). Shown only in the regular size. */
+  art?: WorkArtKind;
+};
 
 export function WorkProgress({
   steps,
@@ -45,12 +51,19 @@ export function WorkProgress({
   let active = 0;
   for (let i = 0; i < steps.length; i++) if (elapsed >= steps[i].at) active = i;
   const step = steps[active]?.label ?? "";
+  const art = steps[active]?.art;
   const left = Math.max(typicalSeconds - elapsed, 0);
   const remaining = left > 0 ? `About ${left} second${left === 1 ? "" : "s"} left` : "Almost done…";
   const compact = size === "compact";
 
   return (
     <div role="status" className={compact ? "" : "text-center"}>
+      {!compact && art && (
+        // Keyed, so the next drawing fades in when the step changes.
+        <div key={art} className="cs-step-in mb-6">
+          <WorkArt kind={art} />
+        </div>
+      )}
       {heading && (
         <p
           className={

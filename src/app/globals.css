@@ -1015,11 +1015,52 @@
   animation: cs-step-in 320ms var(--ease-out) both;
 }
 
+/* The drawings of a wait (components/work-art). Transform, opacity and
+   stroke-dashoffset only; each rests in its finished state without motion. */
+@keyframes cs-art-scan {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(48px); }
+}
+.cs-art-scan { animation: cs-art-scan 2.8s var(--ease-out) infinite; }
+
+@keyframes cs-art-search {
+  0%, 100% { transform: translate(-30px, 4px); }
+  50% { transform: translate(30px, -4px); }
+}
+.cs-art-search { animation: cs-art-search 3.2s ease-in-out infinite; }
+
+@keyframes cs-art-pop {
+  0%, 6% { opacity: 0; transform: translateX(-6px); }
+  18%, 84% { opacity: 1; transform: none; }
+  100% { opacity: 0; transform: none; }
+}
+.cs-art-pop { animation: cs-art-pop 3.6s var(--ease-out) infinite both; }
+
+@keyframes cs-art-write {
+  0% { stroke-dashoffset: 1; opacity: 1; }
+  28%, 86% { stroke-dashoffset: 0; opacity: 1; }
+  100% { stroke-dashoffset: 0; opacity: 0; }
+}
+.cs-art-write {
+  stroke-dasharray: 1;
+  animation: cs-art-write 3.6s var(--ease-out) infinite both;
+}
+
+@keyframes cs-art-caret {
+  50% { opacity: 0; }
+}
+.cs-art-caret { animation: cs-art-caret 1s steps(1) infinite; }
+
 @media (prefers-reduced-motion: reduce) {
   .cs-ping,
   .cs-sweep,
   .cs-shimmer,
-  .cs-step-in {
+  .cs-step-in,
+  .cs-art-scan,
+  .cs-art-search,
+  .cs-art-pop,
+  .cs-art-write,
+  .cs-art-caret {
     animation: none;
   }
   /* Without motion the ring would sit on the dot as a solid blob. */

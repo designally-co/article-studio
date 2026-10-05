@@ -23,10 +23,10 @@ import { prepareSimpleArticleAction } from "../actions";
  * what a typical run takes. One line at a time is shown, not the list.
  */
 const PHASES = [
-  { at: 0, label: "Reading your topic" },
-  { at: 3, label: "Researching sources" },
-  { at: 15, label: "Planning the article" },
-  { at: 27, label: "Opening the editor" },
+  { at: 0, label: "Reading your topic", art: "reading" },
+  { at: 3, label: "Researching sources", art: "research" },
+  { at: 15, label: "Planning the article", art: "outline" },
+  { at: 27, label: "Starting the draft", art: "writing" },
 ] as const;
 
 const TYPICAL_SECONDS = 35;
