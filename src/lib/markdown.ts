@@ -30,3 +30,17 @@ export function stripTitleHeading(markdown: string, title: string): string {
   }
   return markdown;
 }
+
+/**
+ * The article's own title: the H1 its first line carries, or undefined when
+ * it opens with anything else. Trailing `#`s are dropped, as Markdown allows
+ * them to close a heading.
+ */
+export function leadingTitle(markdown: string | undefined | null): string | undefined {
+  const first = (markdown ?? "")
+    .replace(/^﻿/, "")
+    .split("\n")
+    .find((line) => line.trim() !== "");
+  const match = first?.match(/^#\s+(.+?)\s*#*\s*$/);
+  return match?.[1].trim() || undefined;
+}

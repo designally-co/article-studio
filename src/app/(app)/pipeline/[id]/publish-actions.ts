@@ -5,7 +5,7 @@ import { deDash } from "@/lib/text";
 import { getDb } from "@/db";
 import { projects } from "@/db/schema";
 import { requireUser } from "@/lib/session";
-import { loadProject } from "@/lib/projects";
+import { articleTitle, loadProject } from "@/lib/projects";
 import { stripTitleHeading } from "@/lib/markdown";
 import { generateDek, publishToHubCore } from "@/lib/pipeline/publish";
 import type { PublishToHubResult } from "@/lib/pipeline/views";
@@ -27,7 +27,7 @@ export async function ensurePublishDekAction(projectId: string): Promise<string 
   const cached = loaded.project.inputs.publishDek?.trim();
   if (cached) return deDash(cached);
 
-  const title = loaded.project.selectedTopic?.title?.trim();
+  const title = articleTitle(loaded);
   const draftMarkdown = (loaded.drafts.find((d) => d.isSelected) ?? loaded.drafts[0])?.contentMd?.trim();
   if (!title || !draftMarkdown) return undefined;
 

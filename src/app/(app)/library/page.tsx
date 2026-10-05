@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { and, eq, desc, asc, inArray, sql } from "drizzle-orm";
 import { getDb } from "@/db";
-import { projects, categories, images } from "@/db/schema";
+import { projects, categories, images, drafts } from "@/db/schema";
+import { leadingTitle } from "@/lib/markdown";
 import { fetchableImageUrls } from "@/lib/image/storage";
 import { PageHeading } from "@/components/page-heading";
 import { PageFab } from "@/components/page-bar";
@@ -56,16 +57,29 @@ export default async function LibraryPage({
       // candidates and drafted briefs, and this is every row on the page.
       coverImageId: sql<string | null>`${projects.inputs} ->> 'coverImageId'`,
       publishedCoverImageId: sql<string | null>`${projects.inputs} ->> 'publishedCoverImageId'`,
+      /* The opening of the selected draft, for its title (see `articleTitle`):
+         four hundred characters, not the body, since this is every row. */
+      draftOpening: sql<string | null>`(
+        select left(${drafts.contentMd}, 400) from ${drafts}
+        where ${drafts.projectId} = ${projects.id}
+        order by ${drafts.isSelected} desc, ${drafts.variationNo} asc
+        limit 1
+      )`,
     })
     .from(projects)
     .leftJoin(categories, eq(projects.categoryId, categories.id))
     .where(conds.length ? and(...conds) : undefined)
     .orderBy(desc(projects.updatedAt));
 
+  /* The draft's title, as publishing uses it, or the typed topic before
+     there is a draft — so the list, the search and the sort match the Hub. */
+  const titleOf = (row: (typeof rows)[number]) =>
+    leadingTitle(row.draftOpening) || row.topic?.title?.trim() || "Untitled project";
+
   const query = (sp.q ?? "").trim().toLowerCase();
   if (query) {
     rows = rows.filter((row) =>
-      (row.topic?.title ?? "Untitled project").toLowerCase().includes(query),
+      titleOf(row).toLowerCase().includes(query),
     );
   }
 
@@ -141,7 +155,7 @@ export default async function LibraryPage({
   const byText = (x: string, y: string) => x.localeCompare(y, undefined, { sensitivity: "base" });
   rows.sort((a, b) => {
     let comparison = 0;
-    if (field === "title") comparison = byText(a.topic?.title || "Untitled project", b.topic?.title || "Untitled project");
+    if (field === "title") comparison = byText(titleOf(a), titleOf(b));
     else if (field === "direction") comparison = byText(a.categoryName || "Uncategorized", b.categoryName || "Uncategorized");
     else if (field === "status") comparison = byText(a.status, b.status);
     else if (field === "created") comparison = a.createdAt.getTime() - b.createdAt.getTime();
@@ -186,7 +200,7 @@ export default async function LibraryPage({
   const perPageOptions = PER_PAGE_OPTIONS.map((per) => ({ value: per, href: hrefFor({ page: 1, per }) }));
   const toItemProps = (row: (typeof rows)[number]) => ({
     id: row.id,
-    title: row.topic?.title || "Untitled project",
+    title: titleOf(row),
     category: row.categoryName || "Uncategorized",
     dateLabel: new Date(row.updatedAt).toLocaleDateString(undefined, {
       year: "numeric",

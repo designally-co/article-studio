@@ -11,6 +11,7 @@ import {
 } from "@/db/schema";
 import { getBrand } from "./brand";
 import { getArticleRules } from "./article-template";
+import { leadingTitle } from "./markdown";
 import type { PipelineContext } from "./anthropic";
 
 export async function loadProject(id: string) {
@@ -82,6 +83,22 @@ export async function loadProject(id: string) {
 export type LoadedProject = NonNullable<
   Awaited<ReturnType<typeof loadProject>>
 >;
+
+/**
+ * The article's title: the H1 of the selected draft, or the topic the editor
+ * typed when the draft has none.
+ *
+ * THE DRAFT WINS. What the editor types on the create page is an idea — "How
+ * design drive the business" — and the draft is written with a proper title
+ * for it. The Hub, the library and the tab used to show the typed idea, so a
+ * typo published as the headline while the draft above it read correctly
+ * (5 Oct 2026). The draft's title is the one the editor sees and can edit, so
+ * it is the one that goes out.
+ */
+export function articleTitle(p: LoadedProject): string | undefined {
+  const draft = p.drafts.find((d) => d.isSelected) ?? p.drafts[0];
+  return leadingTitle(draft?.contentMd) || p.project.selectedTopic?.title?.trim() || undefined;
+}
 
 /**
  * Which generated image is the article's cover.
