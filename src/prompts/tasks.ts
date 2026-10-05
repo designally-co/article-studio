@@ -11,7 +11,7 @@ const visualDirectionBlock = (): string =>
   ].join("\n");
 
 /** Task layer — stage-specific instructions. Versioned per template. */
-export const TASKS_VERSION = "tasks@3.1.0";
+export const TASKS_VERSION = "tasks@3.2.0";
 
 /** How far back a news-driven idea may sit and still count as current. */
 const RECENCY_DAYS = 90;
@@ -200,40 +200,51 @@ export function imagePromptTask(params: {
   visualBrief: import("@/lib/image/visual-brief").ArticleVisualBrief;
   /** The scene THIS prompt shows — the brief's lead scene, or one of its alternates. */
   scene: string;
+  /** Whether that scene is photographed or drawn. */
+  medium: import("@/lib/image/visual-brief").ImageMedium;
   /** Where this prompt sits in the set, so it can be told what not to repeat. */
   variantNo: number;
   variantCount: number;
   siblingScenes: string[];
   hasReferenceImage: boolean;
 }): string {
-  return `## Task: write an image prompt for one photograph
+  const drawn = params.medium === "illustration";
+  return `## Task: write an image prompt for one ${drawn ? "editorial illustration" : "photograph"}
 
 ${visualDirectionBlock()}
 
-Write it the way a photographer would be briefed:
+${
+  drawn
+    ? `Write it the way an art director briefs an illustrator:
+- The one idea the picture carries, taken from this article — specific enough that it could not illustrate a different article. Never a stock symbol.
+- What is drawn, and how it is arranged on the page.
+- The technique — risograph, screen print, gouache, pencil, cut paper, collage — and a palette of two to four named colours.
+- No words, letters or numbers in the picture.`
+    : `Write it the way a photographer would be briefed:
 - Describe the scene assigned below as a photograph: what is in frame, how it is arranged, where it is, what surrounds it. If there are people in it, what their hands are doing; if there are none, do not invent any.
-- Lens feel and distance, where the light comes from and how hard it is, what is sharp and what falls away, the time of day the room suggests.
-- Specific ordinary detail — a cooling coffee, a cable half-coiled, a second monitor turned away, papers that have been moved. That is what makes a photograph read as real.
-- Do not call it art, conceptual, surreal, editorial, or a metaphor. It is a photograph of something that happened.
+- Where the camera stands, how close, how long the lens, where the light comes from and how hard it is.
+- One or two details that belong to this subject and no other — its tool, its material, its proof, its wear. Not desk clutter: no coffee, mugs, notebooks, plants or wooden table tops unless the article is about them.
+- Do not call it art, conceptual, surreal, or a metaphor. It is a photograph of something that happened.`
+}
 
 Title: ${params.title}
 
-THE SCENE THIS PHOTOGRAPH SHOWS (image ${params.variantNo} of ${params.variantCount}):
+THE SCENE THIS ${drawn ? "ILLUSTRATION" : "PHOTOGRAPH"} SHOWS (image ${params.variantNo} of ${params.variantCount}):
 ${params.scene}
 ${
   params.hasReferenceImage && params.visualBrief.referenceScene
     ? `
 THE REFERENCE PHOTOGRAPH SHOWS: ${params.visualBrief.referenceScene}
 
-Yours must be the same kind of picture as that — same sort of subject, setting, framing and light. Another instance of that kind of photograph, not that one.
+Yours must be about the same kind of subject as that${drawn ? ", drawn rather than photographed" : ""}. Take its subject, not its furniture: the table it stands on, the mug beside it and the window behind it are not what makes it the right picture, and are not to be carried over.
 
-THE REFERENCE DECIDES WHETHER ANYBODY IS IN THE FRAME. If it shows no person, yours shows no person: an abstract or graphic reference means an abstract or graphic image — printed material, an arrangement of objects, a surface, a space. Adding a human to a picture that had none is the single most common way this goes wrong.
+THE REFERENCE DECIDES WHETHER ANYBODY IS IN THE FRAME. If it shows no person, yours shows no person: an abstract or graphic reference means an abstract or graphic image — printed material, an arrangement of made things, a surface, a space. Adding a human to a picture that had none is the single most common way this goes wrong.
 `
     : ""
 }${
   params.siblingScenes.length > 0
     ? `
-The other images in this set show these scenes. Yours must be a different picture from each — a different moment, a different vantage, a different part of the work — while staying the same kind of scene as the reference:
+The other images in this set show these scenes. Yours must be a different picture from each — a different moment, a different setting, a different part of the work:
 ${params.siblingScenes.map((scene) => `- ${scene}`).join("\n")}
 `
     : ""
@@ -247,7 +258,7 @@ export function articleVisualBriefTask(params: {
   hasReferenceImage: boolean;
   variantCount: number;
 }): string {
-  return `## Task: decide what photograph this article should carry
+  return `## Task: decide what picture this article should carry
 
 ${visualDirectionBlock()}
 
@@ -257,19 +268,21 @@ ${
 
 Write \`referenceScene\`: one sentence describing what it actually shows — the subject, what they are doing, the setting, the framing, the light. Describe the photograph in front of you, not what you expect it to be.
 
-Then write \`scene\`: a picture OF THE SAME KIND, about this article's subject. Another instance of that sort of photograph, not that one. That correspondence is the whole job — an image LIKE the reference, not one merely inspired by it.
+Then write \`scene\`: a picture of the SAME KIND OF SUBJECT, about this article. Another instance of that sort of subject, not that picture — and not its furniture: if the photograph stands the work on a wooden table beside a mug, the table and the mug are not the subject.
 
-THE SAME KIND INCLUDES WHETHER ANYBODY IS IN IT. If the photograph in front of you has no person in it, your scene must have none — describe printed material, objects on a surface, a screen, a room. Do not put a designer at a desk into a scene the reference answered with a flat-lay.`
+THE SAME KIND INCLUDES WHETHER ANYBODY IS IN IT. If the photograph in front of you has no person in it, your scene must have none — describe printed material, made things, a screen, a wall, a room. Do not put a designer into a scene the reference answered with the work alone.`
     : `Set \`referenceScene\` to an empty string — no photograph is attached.
 
-Write \`scene\`: one sentence describing something a photographer could have walked in on. Name what is in frame, how it is arranged, where it is, and what surrounds it — people at work, or objects and printed material with nobody there. Either is right; the article decides.`
+Write \`scene\`: one sentence. For a photograph, something a photographer could have walked in on: what is in frame, how it is arranged, where it is, what surrounds it — people at work, or the work itself with nobody there. For an illustration, the one idea and what is drawn to carry it. The article decides.`
 }
 
-An article about designers using AI is a designer working — not a glowing brain, a robot hand, or a floating interface. An article about a brand audit is the printed brand material itself: stationery and packaging laid out on a table, a wall of pinned logo variations, a colour book open beside a swatch fan — no person required, and none unless the reference has one. An article about type licensing is a drawer of metal type in a workshop, or somebody at a screen with a foundry's licence page open. If a reader could not say what is in the picture, the scene is not doing its job. Ordinary and slightly untidy beats styled.
+Write \`medium\`: "photograph" or "illustration", for \`scene\`. A photograph when the article is about something that exists to be photographed — a specific identity, book, typeface, product, building, place, event, or people doing a particular piece of work. An illustration when it is about an idea, a method, a trend, a comparison, an opinion or a workflow, where any photograph would be a stand-in — and that is where the same desk kept appearing. Choose; do not default.
 
-Write \`alternateScenes\`: ${Math.max(params.variantCount - 1, 0)} other real scenes from the same world. Not the same moment from another angle — a different one: a different part of the work, a different arrangement, a different room, a different time of day. An editor is choosing between the finished photographs, so two scenes that would produce the same picture are one wasted choice.
+An article about a rebrand is the identity applied in the world: signage on the building, packaging on a shelf, the proof pinned on a studio wall during the crit. An article about type licensing is a drawer of metal type in a workshop, or a type specimen being marked up. An article about how teams use AI in their workflow has no single thing to photograph: an illustration of the idea in it — a moodboard of a hundred near-identical tiles with one hand-drawn sketch standing out, say — tells it better than any staged desk. Not a glowing brain, a robot hand, or a floating interface, drawn or photographed. If a reader could not say what is in the picture, the scene is not doing its job. Real beats styled.
 
-Write \`photoQuery\`: three to six words to search a stock photo library with, describing the SITUATION and nothing else — "designer working at desk laptop", "brand stationery flat lay table", "typographer inspecting metal type", "colour swatches and print samples". No brand names, no abstract nouns, no adjectives about mood. This finds the reference photograph the finished image is matched against, so it must describe something a photographer would actually have shot.
+Write \`alternateScenes\`: ${Math.max(params.variantCount - 1, 0)} other scenes from the same world, each with its own \`medium\`. Not the same moment from another angle — a different one: a different part of the work, a different setting, a different idea. Where there is more than one image, make at least one of them the other medium from \`scene\`, unless the article is about one specific made thing that only a photograph can show. An editor is choosing between the finished pictures, so two scenes that would produce the same picture are one wasted choice.
+
+Write \`photoQuery\`: three to six words to search a stock photo library with, describing the SITUATION and nothing else — "designers reviewing prints on studio wall", "printer checking proofs at press", "typographer inspecting metal type", "packaging prototypes in design studio", "shop signage on street". No brand names, no abstract nouns, no adjectives about mood, and not "desk", "table", "laptop", "coffee" or "workspace" unless the article is about that very thing — they find the same flat-lay every time. This finds the reference photograph the finished image is matched against, so it must describe something a photographer would actually have shot.
 
 Finished title: ${params.title}
 
@@ -296,7 +309,7 @@ Write \`queries\`: four to six searches, two to five words each, ordered from th
 
 Use the words a photographer would file the picture under. Name software or tools only where photographs of them in use plausibly exist. No other brand or company names, no abstract nouns ("innovation", "future", "success"), no mood adjectives, and never the article's headline.
 
-Write \`avoid\`: two to five short phrases naming the photographs a careless search would return that are WRONG for this article. Above all, literal readings of the topic's words that belong to a different world. For motion: "people moving with motion blur", "long-exposure traffic trails", "running athletes". For branding: "cattle branding". For a layout grid: "electrical power grid". Add the obvious stock clichés for the topic too.
+Write \`avoid\`: two to five short phrases naming the photographs a careless search would return that are WRONG for this article. Above all, literal readings of the topic's words that belong to a different world. For motion: "people moving with motion blur", "long-exposure traffic trails", "running athletes". For branding: "cattle branding". For a layout grid: "electrical power grid". Add the obvious stock clichés for the topic too, and always the generic desk: "laptop and coffee on wooden desk", "notebook and pen flat lay".
 ${
   params.seedQuery
     ? `\nThe image brief already suggested this search. It is a reasonable starting point but may be too narrow: "${params.seedQuery}"\n`
@@ -326,7 +339,7 @@ Title: ${params.title}${params.angle ? `\nAngle: ${params.angle}` : ""}
 Give every candidate exactly one verdict:
 - \`best\`: shows the work of this article's world being done — its tools, software, screens, materials or workspace. The search aimed at: ${quoted(params.best) || "(none)"}.
 - \`acceptable\`: clearly shows the subject matter of this world without the work — the artefact, the material, the result. The search also tried: ${quoted(params.acceptable) || "(none)"}.
-- \`reject\`: anything else. In particular a literal reading of the topic's words that belongs to a different world (${quoted(params.avoid) || "none named"}), a generic stock cliché, a picture whose connection to the article needs explaining, a logo or wordmark, or a picture that is mostly readable text.
+- \`reject\`: anything else. In particular a literal reading of the topic's words that belongs to a different world (${quoted(params.avoid) || "none named"}), a generic stock cliché — above all the generic desk: a laptop, a coffee cup, a notebook or a plant on a wooden table, unless the article is about that very thing — a picture whose connection to the article needs explaining, a logo or wordmark, or a picture that is mostly readable text.
 
 Related is enough; it does not have to match the article exactly. But if you cannot say in one short sentence how a picture belongs to this article's world, reject it.
 
