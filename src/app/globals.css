@@ -1006,10 +1006,20 @@
   animation: cs-shimmer 2.4s var(--ease-out) infinite;
 }
 
+@keyframes cs-step-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+/* A wait's next step arriving (components/work-progress). */
+.cs-step-in {
+  animation: cs-step-in 320ms var(--ease-out) both;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .cs-ping,
   .cs-sweep,
-  .cs-shimmer {
+  .cs-shimmer,
+  .cs-step-in {
     animation: none;
   }
   /* Without motion the ring would sit on the dot as a solid blob. */

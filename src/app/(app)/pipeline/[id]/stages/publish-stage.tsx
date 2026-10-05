@@ -36,6 +36,7 @@ import {
 import { IconDownload, IconTrash } from "@/components/icons";
 import { ImageSettingsMenu, ReferenceMenu } from "./image-dock-menus";
 import { AccentOrb } from "@/components/accent-orb";
+import { WorkProgress } from "@/components/work-progress";
 import type { ImageAspectRatio } from "@/lib/image/providers";
 import type { GeneratedImageView, UploadedReferenceView } from "@/lib/pipeline/views";
 import type { CoverCredit } from "@/db/schema";
@@ -1806,17 +1807,18 @@ function PublishComposer({
 }
 
 /**
- * The steps a publish actually moves through, in order. As with preparation
- * there is no progress channel back — publishToHubAction is one call — so this
- * advances on elapsed time and the labels name work attempted, never a result
- * claimed. The cover upload really is conditional server-side (no image, or a
- * failed upload, does not block the publish), which is why its note says so.
+ * What a publish moves through, on elapsed time (see WorkProgress), and what it
+ * usually takes. The Thai translation runs on the Hub after it answers, so it
+ * is not part of this wait. The cover step is skipped server-side when there
+ * is no image; on a timer it simply passes.
  */
 const PUBLISH_STEPS = [
-  { at: 0, label: "Preparing the article", note: "Title, dek and body." },
-  { at: 2, label: "Uploading the cover", note: "Skipped if there is no image." },
-  { at: 6, label: "Sending it to the Hub", note: "Converting and saving." },
+  { at: 0, label: "Preparing the article" },
+  { at: 2, label: "Uploading the cover" },
+  { at: 6, label: "Sending it to the Hub" },
 ] as const;
+
+const PUBLISH_TYPICAL_SECONDS = 12;
 
 /**
  * The working state for a publish.
@@ -1846,83 +1848,14 @@ function cmsUrlForHubPage(publicUrl: string): string | undefined {
 }
 
 function PublishingPanel({ status }: { status: "draft" | "published" }) {
-  const [elapsed, setElapsed] = useState(0);
-
-  useEffect(() => {
-    const id = setInterval(() => setElapsed((s) => s + 1), 1000);
-    return () => clearInterval(id);
-  }, []);
-
-  // The last step holds until the action resolves and this panel unmounts, so
-  // the rail cannot show a finish the server has not reached.
-  let active = 0;
-  for (let i = 0; i < PUBLISH_STEPS.length; i++) if (elapsed >= PUBLISH_STEPS[i].at) active = i;
-
   return (
-    <div className="rounded-2xl bg-sunken p-3.5" aria-live="polite">
-      <div className="flex items-center justify-between gap-3">
-        <p className="text-sm font-semibold text-ink">
-          {status === "published" ? "Publishing to the Hub" : "Saving a draft to the Hub"}
-        </p>
-        <span className="font-mono text-xs tabular-nums text-ink-3" aria-label={`${elapsed} seconds elapsed`}>
-          {`0:${String(elapsed % 60).padStart(2, "0")}`}
-        </span>
-      </div>
-
-      <ol className="mt-3 space-y-2.5">
-        {PUBLISH_STEPS.map((step, i) => {
-          const state = i < active ? "done" : i === active ? "active" : "pending";
-          return (
-            <li key={step.label} className="flex gap-3">
-              <span className="relative mt-[5px] flex size-2 shrink-0 items-center justify-center">
-                {state === "active" && (
-                  <span className="cs-ping absolute inline-flex size-2 rounded-full bg-accent" aria-hidden="true" />
-                )}
-                <span
-                  className="relative inline-flex size-2 rounded-full transition-all duration-(--duration-slow) ease-(--ease-spring)"
-                  style={{
-                    background:
-                      state === "pending" ? "transparent" : state === "done" ? "var(--ink-300)" : "var(--accent)",
-                    boxShadow: state === "pending" ? "inset 0 0 0 1.5px var(--ink-200)" : "none",
-                  }}
-                />
-              </span>
-              <span className="min-w-0 flex-1">
-                <span
-                  className="block text-xs font-medium transition-colors duration-(--duration-slow) ease-(--ease-spring)"
-                  style={{
-                    color:
-                      state === "pending"
-                        ? "var(--ink-400)"
-                        : state === "done"
-                          ? "var(--ink-secondary)"
-                          : "var(--accent-press)",
-                  }}
-                >
-                  {step.label}
-                </span>
-                {state === "active" && (
-                  <>
-                    <span className="mt-0.5 block text-[11px] leading-snug text-ink-3">{step.note}</span>
-                    {/* Indeterminate: there is no real percentage to report. */}
-                    <span
-                      className="mt-2 block h-[3px] w-full overflow-hidden rounded-full"
-                      style={{ background: "var(--accent-tint)" }}
-                      aria-hidden="true"
-                    >
-                      <span className="cs-sweep block h-full w-1/4 rounded-full" style={{ background: "var(--accent)" }} />
-                    </span>
-                  </>
-                )}
-              </span>
-            </li>
-          );
-        })}
-      </ol>
-
-      <p className="mt-3.5 border-t border-line pt-3 text-[11px] leading-relaxed text-ink-3">
-        Keep this tab open — it finishes here and shows you the link.
-      </p>
+    <div className="rounded-2xl bg-sunken p-3.5">
+      <WorkProgress
+        steps={PUBLISH_STEPS}
+        typicalSeconds={PUBLISH_TYPICAL_SECONDS}
+        heading={status === "published" ? "Publishing to the Hub" : "Saving a draft to the Hub"}
+        size="compact"
+      />
     </div>
   );
 }
