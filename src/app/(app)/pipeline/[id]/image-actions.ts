@@ -83,11 +83,20 @@ export async function uploadImageReferenceAction(
 export async function findReferenceImagesAction(
   projectId: string,
   options?: { query?: string }
-): Promise<{ references: UploadedReferenceView[]; note?: string; subjectIds?: string[] }> {
+): Promise<
+  | { ok: true; references: UploadedReferenceView[]; note?: string; subjectIds?: string[] }
+  | { ok: false; message: string }
+> {
   await requireUser();
-  const result = await findReferenceImagesCore(projectId, options);
-  revalidatePath(`/pipeline/${projectId}`);
-  return result;
+  // Returns its failure rather than throwing it: see `generateImagesAction`.
+  try {
+    const result = await findReferenceImagesCore(projectId, options);
+    revalidatePath(`/pipeline/${projectId}`);
+    return { ok: true, ...result };
+  } catch (cause) {
+    console.error("[findReferenceImages]", cause);
+    return { ok: false, message: cause instanceof Error ? cause.message : "Could not look for reference images." };
+  }
 }
 
 /** Detach a reference from the article and delete its bytes. */
@@ -107,6 +116,12 @@ export async function deleteImageReferenceAction(referenceId: string): Promise<v
 }
 
 /** Session-checked wrapper. The work lives in @/lib/pipeline/images. */
+/**
+ * Generate images. Returns its failure instead of throwing it, as
+ * `coverFromReferenceAction` does: a thrown Server Action error is redacted in
+ * production, and a Fal error, a timeout or a missing reference all reached
+ * the editor as "Minified React error #441" with the reason nowhere.
+ */
 export async function generateImagesAction(
   projectId: string,
   request: {
@@ -117,11 +132,17 @@ export async function generateImagesAction(
     referenceIds: string[];
     variantPrompts?: string[];
   }
-): Promise<GenerationRunResult> {
+): Promise<({ ok: true } & GenerationRunResult) | { ok: false; message: string }> {
   await requireUser();
-  const result = await generateImagesCore(projectId, request);
-  revalidatePath(`/pipeline/${projectId}`);
-  return result;
+  try {
+    const result = await generateImagesCore(projectId, request);
+    revalidatePath(`/pipeline/${projectId}`);
+    return { ok: true, ...result };
+  } catch (cause) {
+    // In the server log too, where the full error and its stack are kept.
+    console.error("[generateImages]", cause);
+    return { ok: false, message: cause instanceof Error ? cause.message : "Image generation failed." };
+  }
 }
 
 

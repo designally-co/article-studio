@@ -77,12 +77,18 @@ export async function goToFinalizeAction(formData: FormData) {
 }
 
 /** Session-checked wrapper. The work lives in @/lib/pipeline/image-prompt. */
+/** Returns its failure rather than throwing it: see `generateImagesAction`. */
 export async function generateImagePromptAction(
   projectId: string,
   imageContext?: { variationCount?: number; referenceId?: string }
-): Promise<DraftedImagePrompt> {
+): Promise<({ ok: true } & DraftedImagePrompt) | { ok: false; message: string }> {
   await requireUser();
-  return generateImagePromptCore(projectId, imageContext);
+  try {
+    return { ok: true, ...(await generateImagePromptCore(projectId, imageContext)) };
+  } catch (cause) {
+    console.error("[generateImagePrompt]", cause);
+    return { ok: false, message: cause instanceof Error ? cause.message : "Failed to draft prompt." };
+  }
 }
 
 export async function reviewBrandAlignmentAction(projectId: string): Promise<BrandReviewResult> {

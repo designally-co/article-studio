@@ -685,6 +685,10 @@ function ImagePanel({
         query:
           visualBrief?.photoQuery?.trim() || undefined,
       });
+      if (!result.ok) {
+        setError(result.message);
+        return;
+      }
       setReferences(result.references);
       const notes: string[] = [];
       if (result.note) notes.push(result.note);
@@ -765,6 +769,10 @@ function ImagePanel({
         variationCount: count,
         referenceId: chosenReference?.id,
       });
+      if (!result.ok) {
+        setError(result.message);
+        return;
+      }
       setPrompt(result.prompt);
       setDraftedPrompt(result.prompt);
       setVariants(result.variants);
@@ -789,6 +797,10 @@ function ImagePanel({
         referenceIds: usableReferences.map((item) => item.id),
         variantPrompts: usingDraftedSet ? variants.map((variant) => variant.prompt) : undefined,
       });
+      if (!result.ok) {
+        setError(result.message);
+        return;
+      }
       setImgs((prev) => [...result.images, ...prev]);
       if (result.failedCount > 0) {
         setError(
