@@ -90,6 +90,18 @@ function specificSources(sources: OutlineJson["sources"]): OutlineJson["sources"
   return specific.length >= 2 ? specific : sources;
 }
 
+/** A plan worth writing from: a title and at least one section with a heading. */
+function hasPlan(plan: unknown): plan is OutlineJson {
+  if (typeof plan !== "object" || plan === null || Array.isArray(plan)) return false;
+  const { title, sections } = plan as Partial<OutlineJson>;
+  return (
+    typeof title === "string" &&
+    title.trim().length > 0 &&
+    Array.isArray(sections) &&
+    sections.some((section) => typeof section?.heading === "string" && section.heading.trim().length > 0)
+  );
+}
+
 export async function preparePlanCore(
   projectId: string,
   options?: { webSearch?: boolean },
@@ -154,6 +166,8 @@ export async function preparePlanCore(
     } catch {
       searched = null;
     }
+    // A reply that parsed but planned nothing is a failed search, not a plan.
+    if (searched && !hasPlan(searched)) searched = null;
   }
 
   /* Source-free by design — see the note on PLAN_TIMEOUT_MS. The task tells
@@ -179,7 +193,12 @@ export async function preparePlanCore(
     stage: "article_research_plan",
   });
 
-  const markdown = outlineToMarkdown({ ...data, sources: specificSources(data.sources) }, true);
+  /* NEVER SAVE AN EMPTY OUTLINE. One was saved, the project moved on to the
+     draft, and the draft stopped at "No approved outline" with no way back
+     (5 Oct 2026). A plan without a title and sections fails here instead, and
+     the preparation card offers to try again. */
+  if (!hasPlan(data)) throw new Error("The outline came back empty. Try again.");
+  const markdown = outlineToMarkdown({ ...data, sources: specificSources(data.sources ?? []) }, true);
   const db = await getDb();
   await db.update(projects).set({
     inputs: {

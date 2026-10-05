@@ -399,7 +399,10 @@ export async function runJson<T>(params: {
     });
 
     refused(msg.stop_reason);
-    const raw = extractJson<unknown>(textOf(params.webSearch ? afterLastSearch(msg.content) : msg.content));
+    const raw = extractJson<unknown>(
+      textOf(params.webSearch ? afterLastSearch(msg.content) : msg.content),
+      params.schema.type === "object" ? "object" : undefined,
+    );
     if (raw === null) {
       if (msg.stop_reason === "max_tokens") return { truncated: true, usage: msg.usage };
       throw new Error("Model did not return the required structured response.");
