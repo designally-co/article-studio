@@ -1,0 +1,150 @@
+# Spec: https://github.com/designally-co/designally-brain/blob/main/docs/brain-yaml.md
+
+format_version: 1
+slug: article-studio
+name: Article Studio
+kind: internal_tool
+status: live
+
+purpose: >
+  Turns a topic, a brief, or a content category into one researched
+  creative-industry article with images, written in Designally's brand voice
+  and ready to publish on the Knowledge Hub.
+summary: >
+  A Next.js app for Designally's content team (its own docs also call it
+  "Content Studio"). An editor starts from a topic, a brief, or a category; the
+  app researches sources, plans and streams a draft with Claude, and lets the
+  editor refine it in chat. It generates a cover image with Fal.ai, stores
+  images in Cloudflare R2, and publishes the article to the Knowledge Hub.
+  Routines can also write and publish articles on a schedule with no person
+  reviewing them. Production runs as a Docker container on the Designally NAS.
+
+stack:
+  - Next.js
+  - Drizzle ORM
+  - PostgreSQL (Supabase)
+  - Claude API
+  - Fal.ai
+  - Cloudflare R2
+  - Cloudflare Workers
+  - Auth.js (Google sign-in)
+  - Tailwind CSS
+  - Docker (Designally NAS)
+  - Vercel (staging)
+
+live_url: https://article-studio.designally.co
+repo_url: https://github.com/designally-co/article-studio
+supabase_project_ref: rnuhflupruqkqxqfnctu
+
+features:
+  - name: Three ways to start
+    description: >
+      Start from a topic, a brief, or a content category. With a category,
+      Claude suggests timely topic ideas using web search.
+  - name: Research and draft
+    description: >
+      One "Generate draft" action researches sources, writes an article plan,
+      and streams one draft in Thai, English, or both.
+  - name: Chat refinement with history
+    description: >
+      The editor refines the draft in chat. The version before each
+      regeneration or AI revision is saved, so older versions can be restored.
+  - name: Fact-check and brand review
+    description: Checks the draft for source consistency, facts, and Designally's brand rules.
+  - name: Image generation
+    description: >
+      Generates the cover and companion images with Fal.ai, guided by uploaded
+      reference images. Images are stored in Cloudflare R2.
+  - name: Publish to Knowledge Hub
+    description: >
+      Sends the article and its cover to the Knowledge Hub as a draft or as
+      published. The Hub then makes the Thai translation.
+  - name: Routines
+    description: >
+      Saved schedules (manual, daily, weekdays or weekly) that each write one
+      article end to end, with a cover, and send it to the Hub with no person
+      reviewing it. A Cloudflare Worker calls the app every 2 minutes and the
+      app moves each run forward one step at a time.
+  - name: Search Console insights
+    description: >
+      The editor can paste a Google Search Console export; the top queries are
+      used to guide the article.
+  - name: Content Library
+    description: All articles, with filters, so an editor can reopen past work.
+  - name: Brand profile
+    description: >
+      One Designally brand profile (tone, terms, do and do-not rules, audience)
+      applied to every article. Edited in Settings.
+  - name: Settings
+    description: >
+      Admins choose the Claude models for research and drafting, save image
+      provider API keys (stored encrypted), and manage team members.
+  - name: Google sign-in
+    description: Sign-in with Google, limited to designally.co accounts.
+
+tables:
+  - name: projects
+    description: One row per article, with its inputs, topic, plan and stage.
+    sensitive: false
+  - name: drafts
+    description: The article draft in Markdown, with token use and cost.
+    sensitive: false
+  - name: refinements
+    description: History of chat refinements and earlier draft versions.
+    sensitive: false
+  - name: images
+    description: Generated images and where they are stored.
+    sensitive: false
+  - name: image_references
+    description: Reference images uploaded to guide image generation.
+    sensitive: false
+  - name: brand_profiles
+    description: The single Designally brand profile, including the logo.
+    sensitive: false
+  - name: pillars
+    description: Content pillars (top-level groups), seeded from code.
+    sensitive: false
+  - name: categories
+    description: Content directions under a pillar. Each one matches a Knowledge Hub tag.
+    sensitive: false
+  - name: routines
+    description: Saved schedules for unattended articles.
+    sensitive: false
+  - name: routine_runs
+    description: One row per unattended article run, with its current step and status.
+    sensitive: false
+  - name: app_settings
+    description: Key-value settings (article prompt, article length, model choices).
+    sensitive: false
+  - name: api_usage_log
+    description: Per-call record of model, tokens, cost and speed.
+    sensitive: false
+  - name: pricing
+    description: Old price list per model. Kept for compatibility; not used.
+    sensitive: false
+  - name: users
+    description: Team accounts.
+    sensitive: true
+  - name: api_keys
+    description: Saved image provider API keys, encrypted.
+    sensitive: true
+
+connections:
+  - to: knowledge-hub
+    kind: publishes_to
+    description: >
+      Sends articles (POST /api/articles/from-markdown) and cover images
+      (/api/media or /api/media/from-url) to the Hub with a Hub user API key.
+      Data flows one way; the Hub never calls Article Studio.
+
+docs:
+  - PRODUCT.md
+  - DESIGN.md
+  - docs/deploy-nas.md
+  - workers/autopilot-poker/README.md
+
+generated:
+  by: ai
+  at: "2026-10-07"
+  from_commit: 907b5e3
+  checked_by: Buk
