@@ -6,8 +6,9 @@ for Designally’s article platform, in Thai and English.
 
 ## Features (MVP)
 
-- **Auth** — email/password for the internal team (custom credentials, portable
-  to self-hosting). A `role` field is in place for future role-based access.
+- **Auth** — Google sign-in through NextAuth (Auth.js v5), restricted to the
+  `designally.co` Workspace. There are no passwords. Everyone who signs in is an
+  admin; the `role` field stays for the day non-admin accounts return.
 - **Single brand profile** — one brand (Designally) for the whole system:
   tone, terminology, do/don't rules, audience, defaults, a logo/avatar image,
   and a structured brand strategy that steers every generation. Edited in
@@ -36,8 +37,9 @@ for Designally’s article platform, in Thai and English.
 - **Routines** — as many saved schedules as you like, each writing an article on
   its own: it picks the direction, researches, drafts, generates the cover
   image, and sends the result to the Knowledge Hub with nobody reviewing it on
-  the way. Built and run from the **Routines** tab — daily, weekdays, weekly or
-  by hand — capped per day, with every run listed under the routine that made it.
+  the way. Built and run from the **Routines** tab — daily, weekdays, weekly,
+  monthly or by hand — one scheduled article at a time, with every run listed
+  under the routine that made it.
 
 ## Tech stack
 
@@ -58,13 +60,21 @@ Requires Node.js 22+.
 ```bash
 npm install
 cp .env.example .env.local
+# Set AUTH_SECRET, AUTH_GOOGLE_ID and AUTH_GOOGLE_SECRET in .env.local.
 # Optionally set ANTHROPIC_API_KEY in .env.local to enable generation.
 npm run dev
 ```
 
-Open http://localhost:3000. On first run you'll create the initial team account.
-With no `DATABASE_URL`, the app uses an embedded PGlite database in `./data` and
-applies the schema automatically — nothing else to configure.
+Sign-in is Google only, in every environment including local development —
+there is no password form and no development fallback. Create a Google OAuth
+client (type: Web application) and add
+`http://localhost:3000/api/auth/callback/google` to its authorised redirect
+URIs. Without `AUTH_GOOGLE_ID` and `AUTH_GOOGLE_SECRET` the sign-in page says
+"Sign-in is not configured", and a production build fails on purpose.
+
+Open http://localhost:3000 and continue with a `designally.co` Google account.
+Your user row is created on first sign-in. With no `DATABASE_URL`, the app uses
+an embedded PGlite database in `./data` and applies the schema automatically.
 
 Generation stages need `ANTHROPIC_API_KEY` in the server environment; without one, the app still runs and
 shows a clear "not configured" state at each generation step.
@@ -109,6 +119,8 @@ used for usage logging.
    ```bash
    DATABASE_URL=postgresql://postgres.<ref>:<password>@aws-0-<region>.pooler.supabase.com:5432/postgres
    AUTH_SECRET=$(openssl rand -hex 32)
+   AUTH_GOOGLE_ID=...
+   AUTH_GOOGLE_SECRET=...
    ENCRYPTION_KEY=$(openssl rand -hex 32)
    ANTHROPIC_API_KEY=sk-ant-...
    # image storage in Cloudflare R2 — required on Vercel, else images go to disk
@@ -137,17 +149,22 @@ used for usage logging.
    (that domain, with no path, is `R2_PUBLIC_URL`), and make an "Object Read &
    Write" API token scoped to it. Add the same hostname to the Hub's
    `MEDIA_FETCH_HOSTS`, or it refuses to fetch covers. Without R2, images are
-   written to `./data/images` — fine self-hosted, refused on Vercel.
+   written to `./data/images` — fine in development; a production process
+   refuses unless `ALLOW_LOCAL_FALLBACKS=1` (see below), and Vercel refuses
+   regardless.
 
 The app uses the standard Node runtime, Postgres and S3-compatible storage only — no Vercel-exclusive
-features (Edge-only APIs, KV, Blob) — so it runs unchanged on Vercel now and on a
-self-hosted server later.
+features (Edge-only APIs, KV, Blob) — so it runs unchanged on the self-hosted
+NAS (production) and on Vercel (the internal clone).
 
-### Staging deployments
+### Vercel deployments
 
-The private GitHub repository is connected to the dedicated Vercel staging
-project. Pushing to `main` automatically updates the stable staging deployment;
-other branches and pull requests receive isolated preview deployments.
+Production has been the office NAS since 15 September 2026 (see
+[docs/deploy-nas.md](docs/deploy-nas.md)). The Vercel project is kept as an
+internal clone of the app. Pushing to `main` updates it; every other branch is
+switched off in `vercel.json` (`git.deploymentEnabled`), so pull requests get no
+preview deployment. The `Release` GitHub Actions workflow builds every pull
+request instead.
 
 ## Routines (unattended publishing)
 
@@ -166,7 +183,8 @@ routines are due. Two things have to be set once for that to happen:
 1. `CRON_SECRET` in the deployment environment (`openssl rand -hex 32`). The
    endpoint refuses to run without it — a 503, deliberately.
 2. The Cloudflare Worker in `workers/autopilot-poker`, deployed once, which
-   calls the endpoint every five minutes. It takes two secrets of its own:
+   calls the endpoint every two minutes (`*/2 * * * *` in its
+   `wrangler.toml`). It takes two secrets of its own:
    `AUTOPILOT_URL` (`https://<your-app>/api/cron/autopilot`) and
    `AUTOPILOT_SECRET` (the same value as `CRON_SECRET`). See that folder's
    README.
@@ -176,24 +194,29 @@ time zone never means touching the Worker — it only decides how often the app
 is ASKED whether anything is due, never what runs.
 
 **Why a poke and not one long job.** A full article is seven model-and-provider
-steps taking three to four minutes; a serverless function gets sixty seconds. So
-a run is a state machine whose position lives in `routine_runs`, advanced a step
-at a time by whatever calls the endpoint. A crashed run resumes where it stopped
-rather than being lost, and two schedulers arriving together cannot advance the
-same run twice (`FOR UPDATE SKIP LOCKED` plus a claim that expires).
+steps taking a few minutes. It was built for Vercel, where a function gets sixty
+seconds. So a run is a state machine whose position lives in `routine_runs`,
+advanced a step at a time by whatever calls the endpoint. A crashed run resumes
+where it stopped rather than being lost, and two schedulers arriving together
+cannot advance the same run twice (`FOR UPDATE SKIP LOCKED` plus a claim that
+expires).
 
-One poke does one step, because steps are not the same size — a topic takes ten
-seconds and a draft can take fifty — and starting a second one with half the
-budget left is what a 504 looks like from the outside. At a poke every five
-minutes an article lands about half an hour after it starts.
+On the NAS nothing cuts a request off at sixty seconds, so the limits in
+`src/lib/autopilot/runner.ts` are sized for the work instead: one poke keeps
+advancing runs for up to four minutes, a step is called off after 150 seconds,
+and a new step only starts when there is still room for the slowest one.
+Steps are not the same size — a topic takes ten seconds and a searching plan
+can take up to a hundred. `wrangler.toml` records a measured 25 minutes per
+article when the Worker poked every five minutes, and about 12 expected at two.
 
 The cover is three of those seven steps — write the prompt, find the photograph
 and rewrite the prompt against it, generate — because doing all four remote
-calls in one step took 46 seconds and was killed every time.
+calls in one step took 46 seconds and was killed every time under Vercel's
+limit.
 
-`vercel.json` also calls the endpoint daily as a backstop. That is a safety net,
-not the schedule — Vercel's Hobby cron fires about once a day, which would take
-most of a week to finish one article.
+`vercel.json` also calls the endpoint daily (`0 2 * * *`) as a backstop on the
+Vercel clone. That is a safety net, not the schedule — Vercel's Hobby cron fires
+about once a day, which would take most of a week to finish one article.
 
 **Every path through a routine.** Written down because the interesting cases are
 the ones nobody demonstrates.
@@ -213,16 +236,16 @@ I press Run now" has no switch at all: there is nothing for it to be on for.
 the page drives it — seven steps, one request each, about three minutes, with
 the step named as it happens. **The schedule is not consulted and not moved** —
 a routine set to Monday 09:00 writes its article now, and still runs on Monday.
-It ignores the one-a-day ceiling too, because that ceiling exists to stop a
-schedule spending all day and a person pressing a button is not a schedule.
+It is subject to no ceiling at all, and the run is marked `manual` so it never
+stands in for the scheduled one.
 
-*Running on a schedule.* Every five minutes the app is asked whether anything is
+*Running on a schedule.* Every two minutes the app is asked whether anything is
 due. A routine whose time has passed starts one article, then its clock moves to
 the next occurrence — from now, not from the run it missed, so a routine switched
-back on after a week writes one article rather than seven. It is skipped, quietly
-and without losing its place, when today's ceiling is used, when too many starts
-have already failed today, or when it publishes live and the Hub is not
-configured.
+back on after a week writes one article rather than seven. If its scheduled
+article is still being written, it does not start a second one. It is skipped,
+with the reason recorded in its history, when five starts have already failed
+today, or when it publishes live and the Hub is not configured.
 
 *Where the articles go.* Every article a routine writes appears in the Library
 like any other, from the moment its topic is chosen — schedule or Run now, no
@@ -231,8 +254,8 @@ what it made.
 
 *Watching one.* The page shows any run in flight, including one it did not
 start, picks up driving it, and updates while it goes. Closing the page does not
-stop the run: it advances one step every five minutes instead of as fast as the
-steps finish. Opening the page again picks it back up.
+stop the run: it advances at each poke, every two minutes, instead of as fast as
+the steps finish. Opening the page again picks it back up.
 
 *When a step fails.* It is retried twice. After the third failure the run stops
 and the error stands in the routine's history in plain words — a rejected key
@@ -248,10 +271,12 @@ history go. **The articles it wrote stay in the Library**, published ones
 included; nothing on the Hub is touched.
 
 **The brakes.** A routine produces exactly one article, with one cover image, per
-run, and at most one a day on a schedule — neither is a setting, because a run
-that quietly produced two articles is a run nobody asked for, and the second
-image was only ever a variation for an editor to choose between. Pressing Run
-now is an explicit instruction and is not subject to the daily ceiling. A
+run, and a schedule never has two of its articles in flight at once — neither is
+a setting, because a run that quietly produced two articles is a run nobody
+asked for, and the second image was only ever a variation for an editor to
+choose between. There is no longer a one-a-day ceiling: a schedule is an
+instruction, so a routine set to run twice a day writes twice (`max_per_day` is
+still a column, but nothing reads it). A
 step that fails is retried twice and then the run stops with the error visible in
 the history — and a step is counted as attempted the moment it is picked up, not
 when it fails, so one killed by the platform (a 504, which runs none of our code)
@@ -288,20 +313,28 @@ production run, such as `npm start` on a laptop.
 
 ```
 src/
+  auth.ts                  NextAuth config: Google, designally.co only
   app/
-    login/                 first-run account + sign in
+    login/                 sign in with Google (the only way in)
     (app)/                 authenticated shell (left nav)
       page.tsx             Content Library home
       new/                 Stage 1 — Setup
       pipeline/[id]/       Stages 2–6 (stepper + stage components)
       library/             Content Library (filterable)
-      settings/            Brand strategy, categories, article template, models, providers
+      routines/            Routines: create, edit, run now, history
     api/
+      auth/[...nextauth]   NextAuth sign-in, callback and session endpoints
       pipeline/[id]/draft  streamed draft generation (NDJSON)
       pipeline/[id]/refine streamed refinement (NDJSON)
+      topic-ideas          streamed topic ideas (NDJSON)
       cron/autopilot       the autopilot's heartbeat (shared-secret, no session)
+      health               health and schema check (no session)
       images/[id]          serves stored images
-      brand-image/[id]     serves the brand's uploaded logo/avatar
+      image-references/[id] serves reference images
+      brand-logo           serves the brand logo
+      brand-image/[id]     serves the legacy brand avatar
+  components/
+    settings/              the Settings sheet: Brand, Content, API & models
   db/                      Drizzle schema, dual PGlite/Postgres driver, seed
   lib/
     pipeline/              each pipeline step as a plain function, session-free
@@ -319,8 +352,10 @@ defensively with a one-shot retry.
 
 ## Data model & Phase 2
 
-The schema (`src/db/schema.ts`) reserves `role` on users and `published_to` on
-projects, while categories remain data-driven. This leaves room for role-based
-access and direct publishing (WordPress or social APIs) without complicating
-the current article-only workflow. See the product concept document for the
+The schema (`src/db/schema.ts`) keeps `role` on users and `published_to` on
+projects, while categories remain data-driven. Today every Google sign-in is an
+`admin`, so `role` only starts to matter if non-admin accounts return (the
+scrypt password helpers in `src/lib/auth.ts` are kept, unused, for that day).
+`published_to` leaves room for direct publishing (WordPress or social APIs)
+beyond the Knowledge Hub without complicating the current article-only workflow. See the product concept document for the
 full Phase 2 list.
