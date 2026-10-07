@@ -138,6 +138,8 @@ connections:
       Data flows one way; the Hub never calls Article Studio.
 
 docs:
+  - README.md
+  - INTEGRATION.md
   - PRODUCT.md
   - DESIGN.md
   - docs/deploy-nas.md
