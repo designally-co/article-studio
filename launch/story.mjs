@@ -87,6 +87,50 @@ Next time a refill system frustrates or delights you, look closer. That reaction
 export const IMAGE_PROMPT =
   "Studio product photograph of a refillable skincare set, shot straight on: an orange stand-up refill pouch with a line-drawn flower, a navy pouch with a crescent moon and stars, and a slim white bottle with an orange wave-patterned cap, on a pale pink backdrop under a navy scalloped band, soft even light.";
 
+/**
+ * The Ideas list the "no topic yet" path shows. The first is the article; the
+ * others are plausible neighbours from other directions, never opened.
+ * `direction` is matched against the content directions the schema offers.
+ */
+export const IDEAS = [
+  {
+    title: TITLE,
+    angle: "Keep the vessel, swap the contents: why refill systems make packaging designers solve durability, hygiene and mechanics at once.",
+    whyTimely: "Refill formats are a common sustainability promise, and the design work that makes them function is rarely explained.",
+    searchIntent: "refillable packaging design challenges",
+    sources: [
+      { name: "Aptar", url: "https://www.aptar.com/" },
+      { name: "Quadpack", url: "https://www.quadpack.com/" },
+      { name: "The Body Shop", url: "https://www.thebodyshop.com/" },
+    ],
+    direction: /^Packaging$/,
+  },
+  {
+    title: "How Variable Fonts Are Changing Brand Identity Systems",
+    angle: "One font file can hold a whole family, which turns a brand's type palette into a set of ranges.",
+    whyTimely: "",
+    searchIntent: "variable fonts brand identity",
+    sources: [],
+    direction: /^Typography$/,
+  },
+  {
+    title: "What Makes a Motion Identity Feel Like the Brand",
+    angle: "Timing, easing and rhythm as brand assets, not decoration.",
+    whyTimely: "",
+    searchIntent: "motion identity design",
+    sources: [],
+    direction: /^Motion$/,
+  },
+  {
+    title: "Why Most Design Systems Stall After Version One",
+    angle: "The work that keeps a system alive is governance, not components.",
+    whyTimely: "",
+    searchIntent: "design system adoption",
+    sources: [],
+    direction: /^Design Process$/,
+  },
+];
+
 /** Values for any schema this file does not know by name, so a new call never breaks the run. */
 function fill(schema, key = "") {
   if (!schema || typeof schema !== "object") return null;
@@ -125,6 +169,14 @@ export function answerFor({ schema, task, stream }) {
   const has = (...names) => names.every((name) => keys.includes(name));
 
   if (stream) return { kind: "draft", text: DRAFT };
+  if (has("topics")) {
+    const names = schema.properties.topics.items.properties.direction?.enum ?? [];
+    const topics = IDEAS.map(({ direction, ...idea }) => ({
+      ...idea,
+      ...(names.length ? { direction: names.find((name) => direction.test(name)) ?? names[0] } : {}),
+    }));
+    return { kind: "topic_ideas", data: { topics } };
+  }
   if (has("direction") || has("workingTitle")) {
     return { kind: "article_setup", data: { direction: direction(schema), workingTitle: TITLE } };
   }

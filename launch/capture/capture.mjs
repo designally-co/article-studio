@@ -169,7 +169,7 @@ async function steps(name, plan) {
 }
 
 await gate("open-all", "");
-await gate("hold", "plan,draft,visual_brief,image_prompt,generate,hub");
+await gate("hold", "topic_ideas,plan,draft,visual_brief,image_prompt,generate,hub");
 
 // 1. Type a topic.
 console.log("1. create");
@@ -191,10 +191,55 @@ for (const character of TOPIC) {
   pendingEvents.push({ type: "key" });
   await frame();
 }
+await film(14);
+mark("create:typed");
+
+/* 1b. No topic yet: the ideas card (Auto Direction), the globe, the Ideas list, a pick.
+
+   THE PICK IS FILMED, NOT KEPT. An article started from an idea makes the
+   image stage search photo libraries on arrival, which with every outside
+   request blocked ends on a "nothing found" note. So the click's server
+   action is held (it never answers, so the page shows no error), and the
+   article is then started from the typed topic, off camera. Both paths open
+   the same research card with the same title, which is where the cut lands. */
+console.log("1b. ideas");
+segment = "ideas";
+await page.clock.resume();
+await page.goto(`${APP}/new`, { waitUntil: "networkidle" });
+await page.evaluate(() => document.fonts.ready);
+await pause();
+await idle(1200);
+const holdActions = (route) => {
+  if (route.request().method() === "POST" && route.request().headers()["next-action"]) return; // never answered
+  return route.continue();
+};
+await page.route("**/*", holdActions);
+mark("ideas:start");
+cursor = [1000, 640];
+await page.mouse.move(...cursor);
 await film(10);
-await click(page.locator("button[type=submit]"), 16);
-mark("create:sent");
-await film(24);
+await click(page.getByRole("button", { name: "Generate ideas with auto direction" }), 22);
+await until(visible("Searching creative-industry sources…"));
+mark("ideas:globe");
+await film(84);
+await gate("release", "topic_ideas");
+const firstIdea = page.getByRole("button", { name: TOPIC, exact: true });
+await until(() => firstIdea.isVisible());
+mark("ideas:list");
+await film(36);
+await click(firstIdea, 22);
+mark("ideas:picked");
+await film(14);
+await page.unroute("**/*", holdActions);
+
+// The article itself starts from the typed topic, unfilmed.
+segment = "start";
+await page.clock.resume();
+await page.goto(`${APP}/new`, { waitUntil: "networkidle" });
+await page.locator("textarea").first().fill(TOPIC);
+await page.locator("button[type=submit]").click();
+await pause();
+cursor = null;
 
 // 2. Research and write.
 console.log("2. prepare");

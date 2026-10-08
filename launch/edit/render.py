@@ -64,31 +64,44 @@ PREPARE = ["Reading your topic", "Researching sources", "Planning the article", 
 CLIPS = [
     Clip(
         "create", "1",
-        parts=[("create:start", 0, 134, 112)],
+        parts=[("create:start", 0, 107, 96)],
         pill_in=22,  # after the push-in, so the pill never sits on the app's logo
         cam={
-            "16x9": [(0, 720, 450, 1440), (8, 720, 450, 1440), (28, 470, 690, 640), (80, 470, 690, 640),
-                     (98, 770, 612, 1040), (111, 770, 612, 1040)],
+            "16x9": [(0, 720, 450, 1440), (8, 720, 450, 1440), (28, 470, 690, 640), (95, 480, 690, 640)],
             # 4:5 has no wide opening: any crop tall enough for the screen would cut the ideas chips.
-            "4x5": [(0, 433, 688, 336), (40, 433, 688, 336),
-                    (78, 520, 688, 336), (86, 520, 688, 336), (99, 1080, 688, 336), (111, 1080, 688, 336)],
+            "4x5": [(0, 433, 688, 336), (36, 433, 688, 336), (80, 520, 688, 336), (95, 520, 688, 336)],
+        },
+    ),
+    # No topic yet: the ideas card, the globe searching creative-industry
+    # sources, the Ideas list and a pick. The pick is filmed but not kept (see
+    # capture.mjs), so this shot hands over to the research card by a cut.
+    Clip(
+        "ideas", "1",
+        parts=[("ideas:start", 0, 32, 26), ("ideas:globe", 0, 84, 50), ("ideas:list", 0, 72, 60)],
+        cam={
+            # The list is framed from y=130, below its "Ideas" heading, so the
+            # chapter pill sits on empty space rather than on the heading.
+            "16x9": [(0, 760, 350, 760), (24, 760, 350, 760), (36, 760, 450, 1000), (74, 760, 450, 1000),
+                     (84, 760, 467, 1200), (100, 760, 467, 1200), (116, 700, 422, 1040), (135, 700, 422, 1040)],
+            "4x5": [(0, 760, 360, 560), (24, 760, 360, 560), (36, 760, 450, 720), (74, 760, 450, 720),
+                    (84, 480, 505, 600), (100, 480, 505, 600), (116, 460, 480, 560), (135, 460, 480, 560)],
         },
     ),
     Clip(
         "prepare", "2",
-        parts=[(f"prepare:{label}", 0, 45, 36) for label in PREPARE],
+        parts=[(f"prepare:{label}", 0, 45, 30) for label in PREPARE],
         cam={
-            "16x9": [(0, 760, 440, 860), (143, 760, 445, 800)],
-            "4x5": [(0, 760, 450, 640), (143, 760, 450, 600)],
+            "16x9": [(0, 760, 440, 860), (119, 760, 445, 800)],
+            "4x5": [(0, 760, 450, 640), (119, 760, 450, 600)],
         },
-        sounds=[(36, "step"), (72, "step"), (108, "step")],
+        sounds=[(30, "step"), (60, "step"), (90, "step")],
     ),
     Clip(
         "draft", "2",
-        parts=[("draft:open", 0, 122, 84)],
+        parts=[("draft:open", 0, 122, 72)],
         cam={
-            "16x9": [(0, 588, 330, 840), (83, 588, 318, 800)],
-            "4x5": [(0, 510, 450, 660), (83, 510, 440, 620)],
+            "16x9": [(0, 588, 330, 840), (71, 588, 318, 800)],
+            "4x5": [(0, 510, 450, 660), (71, 510, 440, 620)],
         },
     ),
     Clip(
@@ -136,14 +149,14 @@ CLIPS = [
     ),
     Clip(
         "hub", "live",
-        parts=[("hub:start", 0, 15, 15), ("hub:start", 15, 175, 92)],
+        parts=[("hub:start", 0, 15, 15), ("hub:start", 15, 175, 80)],
         pill_out=20,
         pill_corner={"4x5": "bottom"},
         cam={
-            "16x9": [(0, 720, 487, 1440), (106, 720, 483, 1400)],
-            "4x5": [(0, 360, 450, 720), (106, 360, 450, 720)],
+            "16x9": [(0, 720, 487, 1440), (94, 720, 483, 1400)],
+            "4x5": [(0, 360, 450, 720), (94, 360, 450, 720)],
         },
-        segment_by_format={"4x5": [("hub-narrow:start", 0, 15, 15), ("hub-narrow:start", 15, 175, 92)]},
+        segment_by_format={"4x5": [("hub-narrow:start", 0, 15, 15), ("hub-narrow:start", 15, 175, 80)]},
     ),
     Clip("end", None, parts=[], cam={}),
 ]

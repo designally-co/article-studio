@@ -4,17 +4,22 @@
     {
       "clip": "create",
       "offset": 0.3,
-      "text": "Article Studio starts with one topic."
+      "text": "Article Studio starts with a topic you already have."
+    },
+    {
+      "clip": "ideas",
+      "offset": 0.3,
+      "text": "No topic yet? It searches creative-industry sites and suggests one."
     },
     {
       "clip": "prepare",
       "offset": 0.2,
-      "text": "It researches real sources, plans the piece, and writes a full draft in the brand's voice."
+      "text": "Then it researches real sources, plans the piece, and writes the draft."
     },
     {
       "clip": "image",
       "offset": 0.4,
-      "text": "Then it briefs and paints a cover for the story."
+      "text": "It briefs and paints a cover for the story."
     },
     {
       "clip": "publish-wide",

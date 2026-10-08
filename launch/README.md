@@ -5,9 +5,10 @@ The LinkedIn launch video for Article Studio, and the scripts that make it.
 - `article-studio-launch.mp4`: 1920×1080, 30 fps, H.264 + AAC, for posts and comments.
 - `article-studio-launch-4x5.mp4`: 1080×1350, the same shots cropped for the feed.
 
-It follows one article, *How variable fonts are changing brand identity systems*,
-through the app: typing the topic, research and writing, the cover image,
-publishing, and the live page on the Knowledge Hub.
+It follows one article, *Why Refillable Packaging Design Is Harder Than It
+Looks*, through the app: typing the topic (and the "No topic yet?" path, where
+the app searches creative-industry sources and suggests it), research and
+writing, the cover image, publishing, and the live page on the Knowledge Hub.
 
 ## Make it again
 
