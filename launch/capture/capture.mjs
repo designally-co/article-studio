@@ -28,7 +28,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
 import { sessionCookie } from "./session.mjs";
-import { TOPIC } from "../story.mjs";
+import { TOPIC, TYPED_START } from "../story.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const OUT = path.resolve(here, "../.work/frames");
@@ -186,13 +186,24 @@ await film(12);
 await click(composer, 20);
 await film(6);
 mark("create:typing");
-for (const character of TOPIC) {
+/* ONE SCREEN, TWO WAYS IN. A topic is started, left, and deleted, and the
+   cursor goes up to the ideas card on the same page: the "no topic yet" path
+   follows from the typed one instead of starting a scene of its own. */
+for (const character of TYPED_START) {
   await page.keyboard.type(character);
   pendingEvents.push({ type: "key" });
   await frame();
 }
-await film(14);
-mark("create:typed");
+await film(16);
+mark("create:hesitate");
+for (let i = 0; i < TYPED_START.length; i += 2) {
+  await page.keyboard.press("Backspace");
+  if (i + 1 < TYPED_START.length) await page.keyboard.press("Backspace");
+  pendingEvents.push({ type: "key" });
+  await frame();
+}
+await film(6);
+mark("create:deleted");
 
 /* 1b. No topic yet: the ideas card (Auto Direction), the globe, the Ideas list, a pick.
 
@@ -200,25 +211,17 @@ mark("create:typed");
    image stage search photo libraries on arrival, which with every outside
    request blocked ends on a "nothing found" note. So the click's server
    action is held (it never answers, so the page shows no error), and the
-   article is then started from the typed topic, off camera. Both paths open
+   article is then started from the topic, typed off camera. Both paths open
    the same research card with the same title, which is where the cut lands. */
 console.log("1b. ideas");
-segment = "ideas";
-await page.clock.resume();
-await page.goto(`${APP}/new`, { waitUntil: "networkidle" });
-await page.evaluate(() => document.fonts.ready);
-await pause();
-await idle(1200);
 const holdActions = (route) => {
   if (route.request().method() === "POST" && route.request().headers()["next-action"]) return; // never answered
   return route.continue();
 };
 await page.route("**/*", holdActions);
-mark("ideas:start");
-cursor = [1000, 640];
-await page.mouse.move(...cursor);
-await film(10);
-await click(page.getByRole("button", { name: "Generate ideas with auto direction" }), 22);
+await click(page.getByRole("button", { name: "Generate ideas with auto direction" }), 24);
+mark("ideas:clicked");
+segment = "ideas";
 await until(visible("Searching creative-industry sources…"));
 mark("ideas:globe");
 await film(84);

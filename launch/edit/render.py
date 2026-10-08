@@ -62,29 +62,32 @@ class Clip:
 PREPARE = ["Reading your topic", "Researching sources", "Planning the article", "Starting the draft"]
 
 CLIPS = [
+    # One screen, two ways in: a topic is started in the composer, deleted,
+    # and the camera follows the cursor up to the "No topic yet?" card.
     Clip(
         "create", "1",
-        parts=[("create:start", 0, 107, 96)],
+        parts=[("create:start", 0, "ideas:clicked+4", 106)],
         pill_in=22,  # after the push-in, so the pill never sits on the app's logo
         cam={
-            "16x9": [(0, 720, 450, 1440), (8, 720, 450, 1440), (28, 470, 690, 640), (95, 480, 690, 640)],
+            "16x9": [(0, 720, 450, 1440), (8, 720, 450, 1440), (28, 470, 690, 640), (74, 470, 690, 640),
+                     (94, 760, 350, 760), (105, 760, 350, 760)],
             # 4:5 has no wide opening: any crop tall enough for the screen would cut the ideas chips.
-            "4x5": [(0, 433, 688, 336), (36, 433, 688, 336), (80, 520, 688, 336), (95, 520, 688, 336)],
+            # Crossfaded, not moved: a 4:5 crop narrow enough to pan would cut the heading.
+            "4x5": [[(0, 433, 688, 336), (105, 433, 688, 336)], [(80, 760, 360, 560), (105, 760, 360, 560)]],
         },
     ),
-    # No topic yet: the ideas card, the globe searching creative-industry
-    # sources, the Ideas list and a pick. The pick is filmed but not kept (see
+    # The search and its ideas. The pick is filmed but not kept (see
     # capture.mjs), so this shot hands over to the research card by a cut.
     Clip(
         "ideas", "1",
-        parts=[("ideas:start", 0, 32, 26), ("ideas:globe", 0, 84, 50), ("ideas:list", 0, 72, 60)],
+        parts=[("ideas:globe", 0, 84, 50), ("ideas:list", 0, 72, 60)],
         cam={
             # The list is framed from y=130, below its "Ideas" heading, so the
             # chapter pill sits on empty space rather than on the heading.
-            "16x9": [(0, 760, 350, 760), (24, 760, 350, 760), (36, 760, 450, 1000), (74, 760, 450, 1000),
-                     (84, 760, 467, 1200), (100, 760, 467, 1200), (116, 700, 422, 1040), (135, 700, 422, 1040)],
-            "4x5": [(0, 760, 360, 560), (24, 760, 360, 560), (36, 760, 450, 720), (74, 760, 450, 720),
-                    (84, 480, 505, 600), (100, 480, 505, 600), (116, 460, 480, 560), (135, 460, 480, 560)],
+            "16x9": [(0, 760, 450, 1000), (48, 760, 450, 1000), (58, 760, 467, 1200), (74, 760, 467, 1200),
+                     (90, 700, 422, 1040), (109, 700, 422, 1040)],
+            "4x5": [(0, 760, 450, 720), (48, 760, 450, 720), (58, 480, 505, 600), (74, 480, 505, 600),
+                    (90, 460, 480, 560), (109, 460, 480, 560)],
         },
     ),
     Clip(
@@ -186,6 +189,9 @@ def timeline(clip, source, aspect):
     out = []
     for mark, first, last, count in parts:
         base = source.marks[mark]
+        if isinstance(last, str):  # "other-mark+n": up to n frames past another mark
+            other, _, extra = last.partition("+")
+            last = source.marks[other] + int(extra or 0) - base
         for i in range(count):
             out.append(base + first + int(i * (last - first) / count))
     return out
@@ -272,15 +278,25 @@ def render_clip(clip, source, aspect, overlays):
 
     order = timeline(clip, source, aspect)
     viewport = (720, 900) if clip.segment_by_format.get(aspect) else clip.viewport
+    # A camera is a list of keyframes, or a list of such lists: separate
+    # framings joined by a FADE-frame crossfade where the next one starts,
+    # for when a move between them would cut a heading on the way.
     keys = clip.cam[aspect]
+    segments = keys if isinstance(keys[0], list) else [keys]
     ripples = []
     previous = None
     for i, index in enumerate(order):
         sounds = [(0, kind) for f, kind in clip.sounds if f == i]
-        x0, y0, x1, y1 = camera(keys, i, viewport, ratio)
+        current = max(k for k, seg in enumerate(segments) if k == 0 or seg[0][0] <= i)
+        x0, y0, x1, y1 = camera(segments[current], i, viewport, ratio)
         image = source.image(index)
         scale = image.width / viewport[0]
         frame = image.resize((width, height), Image.LANCZOS, box=(x0 * scale, y0 * scale, x1 * scale, y1 * scale))
+        since = i - segments[current][0][0]
+        if current > 0 and since < FADE:
+            a0, b0, a1, b1 = camera(segments[current - 1], i, viewport, ratio)
+            before = image.resize((width, height), Image.LANCZOS, box=(a0 * scale, b0 * scale, a1 * scale, b1 * scale))
+            frame = Image.blend(before, frame, (since + 1) / (FADE + 1))
         canvas = frame.convert("RGBA")
         zoom = width / (x1 - x0)  # output pixels per CSS pixel
 

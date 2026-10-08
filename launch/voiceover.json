@@ -4,12 +4,12 @@
     {
       "clip": "create",
       "offset": 0.3,
-      "text": "Article Studio starts with a topic you already have."
+      "text": "Start with a topic you already have."
     },
     {
-      "clip": "ideas",
-      "offset": 0.3,
-      "text": "No topic yet? It searches creative-industry sites and suggests one."
+      "clip": "create",
+      "offset": 2.3,
+      "text": "Or, if you don't have one, it searches creative-industry sites and suggests one."
     },
     {
       "clip": "prepare",

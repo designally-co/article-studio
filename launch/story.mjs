@@ -10,6 +10,9 @@
  * own, written from the article.
  */
 
+/** What the editor starts typing on the Create screen, then deletes for the ideas card. */
+export const TYPED_START = "Sustainable packaging";
+
 export const TOPIC = "Why Refillable Packaging Design Is Harder Than It Looks";
 export const TITLE = TOPIC;
 /** The content direction the article files under (a name from src/lib/content-pillars.ts). */
