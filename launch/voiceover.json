@@ -1,11 +1,40 @@
 {
-  "about": "The voice-over script. Each line starts `offset` seconds after its shot (`clip`, a name from CLIPS in edit/render.py) begins. A recording goes in assets/voiceover.(wav|mp3): one take of all the lines in order, with a short pause between them; sound.py splits it at the pauses.",
+  "about": "The voice-over script. Each line starts `offset` seconds after its shot (`clip`, a name from CLIPS in edit/render.py) begins. A recording goes in assets/voiceover.(wav|mp3): one take of all the lines in order, with a short pause between them; sound.py splits it at the pauses. `pronounce` gives the sound (IPA, as the Kokoro voice reads it) for names the voice would otherwise say wrongly; the captions keep the spelling.",
   "lines": [
-    { "clip": "create", "offset": 0.3, "text": "Article Studio starts with one topic." },
-    { "clip": "prepare", "offset": 0.2, "text": "It researches real sources, plans the piece, and writes a full draft in the brand's voice." },
-    { "clip": "image", "offset": 0.4, "text": "Then it briefs and paints a cover for the story." },
-    { "clip": "publish-wide", "offset": 0.3, "text": "One click publishes it to the Designally Knowledge Hub." },
-    { "clip": "hub", "offset": 0.4, "text": "And it's live." },
-    { "clip": "end", "offset": 0.2, "text": "Article Studio. Designed and built by Khun Shine Si Thu." }
-  ]
+    {
+      "clip": "create",
+      "offset": 0.3,
+      "text": "Article Studio starts with one topic."
+    },
+    {
+      "clip": "prepare",
+      "offset": 0.2,
+      "text": "It researches real sources, plans the piece, and writes a full draft in the brand's voice."
+    },
+    {
+      "clip": "image",
+      "offset": 0.4,
+      "text": "Then it briefs and paints a cover for the story."
+    },
+    {
+      "clip": "publish-wide",
+      "offset": 0.3,
+      "text": "One click publishes it to the Designally Knowledge Hub."
+    },
+    {
+      "clip": "hub",
+      "offset": 0.4,
+      "text": "And it's live."
+    },
+    {
+      "clip": "end",
+      "offset": 0.2,
+      "text": "Article Studio. Designed and built by Khun Shine Si Thu."
+    }
+  ],
+  "pronounce": {
+    "Designally": "dɪzˈaɪnəli",
+    "Khun": "kˈuːn",
+    "Si Thu": "sˈiː θˈuː"
+  }
 }

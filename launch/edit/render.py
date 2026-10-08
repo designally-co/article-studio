@@ -147,7 +147,7 @@ CLIPS = [
     ),
     Clip("end", None, parts=[], cam={}),
 ]
-END_FRAMES = 120  # long enough for the closing line of the voice-over
+END_FRAMES = 140  # long enough for the closing line of the voice-over
 
 
 # --- frames --------------------------------------------------------------------

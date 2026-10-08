@@ -1,0 +1,23 @@
+1
+00:00:00,300 --> 00:00:02,660
+Article Studio starts with one topic.
+
+2
+00:00:03,700 --> 00:00:09,620
+It researches real sources, plans the piece, and writes a full draft in the brand's voice.
+
+3
+00:00:11,033 --> 00:00:13,773
+Then it briefs and paints a cover for the story.
+
+4
+00:00:16,767 --> 00:00:19,967
+One click publishes it to the Designally Knowledge Hub.
+
+5
+00:00:21,067 --> 00:00:22,027
+And it's live.
+
+6
+00:00:24,200 --> 00:00:28,200
+Article Studio. Designed and built by Khun Shine Si Thu.

@@ -216,10 +216,11 @@ def voice_file():
 def split_take(take, texts):
     """Cuts one take into one piece per line.
 
-    The cuts go in pauses, and among the possible pauses the ones chosen are
-    those that make each piece's share of the take closest to its line's share
-    of the script's letters, so a pause inside a line ("Article Studio.
-    Designed and built by…") is not mistaken for the gap between two lines."""
+    The cuts go in the longest pauses, and among those the ones chosen are the
+    longest that also put each piece's share of the take closest to its
+    line's share of the script's letters, so a pause inside a line ("Article
+    Studio. Designed and built by…") is not mistaken for the gap between two
+    lines."""
     count = len(texts)
     hop = int(0.02 * RATE)
     rms = np.sqrt(np.convolve(take ** 2, np.ones(hop) / hop, mode="same"))[::hop]
@@ -238,6 +239,11 @@ def split_take(take, texts):
     if len(gaps) < count - 1:
         raise SystemExit(f"The voice-over has {len(gaps) + 1} parts; voiceover.json has {count} lines.")
 
+    # Only the longest pauses can be the gaps between lines: a take leaves more
+    # room between lines than after a comma or a full stop inside one.
+    gaps = sorted(sorted(gaps, key=lambda g: g[1] - g[0], reverse=True)[: 2 * (count - 1)])
+    longest = max(b - a for a, b in gaps)
+
     letters = np.array([len(t) for t in texts], dtype=float)
     target = np.cumsum(letters)[:-1] / letters.sum()  # where each cut should fall, as a share
     position = [((a + b) / 2 - first) / (last - first) for a, b in gaps]
@@ -245,12 +251,16 @@ def split_take(take, texts):
     inf = float("inf")
     best = [[inf] * len(gaps) for _ in range(count - 1)]
     back = [[-1] * len(gaps) for _ in range(count - 1)]
+    def miss(k, j):  # how badly gap j suits cut k: off its expected place, or short
+        a, b = gaps[j]
+        return (position[j] - target[k]) ** 2 + 0.05 * (1 - (b - a) / longest)
+
     for j in range(len(gaps)):
-        best[0][j] = (position[j] - target[0]) ** 2
+        best[0][j] = miss(0, j)
     for k in range(1, count - 1):
         for j in range(len(gaps)):
             for i in range(j):
-                cost = best[k - 1][i] + (position[j] - target[k]) ** 2
+                cost = best[k - 1][i] + miss(k, j)
                 if cost < best[k][j]:
                     best[k][j], back[k][j] = cost, i
     j = min(range(len(gaps)), key=lambda g: best[count - 2][g])

@@ -4,6 +4,8 @@
 #   launch/run.sh            capture, then edit
 #   launch/run.sh capture    only film the app (launch/.work/frames)
 #   launch/run.sh edit       only cut the video from the last capture
+#   launch/run.sh voice      read voiceover.json aloud with Kokoro (free, local)
+#                            into assets/voiceover.wav; VOICE=bm_george picks another voice
 #
 # Everything runs on this machine. Article Studio runs as a production build on
 # its own embedded database, the Knowledge Hub runs from its repository on a
@@ -130,9 +132,19 @@ edit() {
   ls -lh "$LAUNCH"/article-studio-launch*
 }
 
+voice() {
+  # Kokoro runs in its own virtualenv; the model (about 350 MB) downloads on first use.
+  if [ ! -x "$WORK/venv/bin/python" ]; then
+    python3 -m venv "$WORK/venv"
+    "$WORK/venv/bin/pip" install -q kokoro-onnx soundfile
+  fi
+  "$WORK/venv/bin/python" "$LAUNCH/edit/voice.py" "${VOICE:-am_michael}"
+}
+
 case "$STAGE" in
+  voice) voice ;;
   capture) capture ;;
   edit) edit ;;
   all) capture; edit ;;
-  *) echo "Usage: $0 [capture|edit|all]" >&2; exit 1 ;;
+  *) echo "Usage: $0 [capture|edit|all|voice]" >&2; exit 1 ;;
 esac
