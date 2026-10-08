@@ -4,10 +4,10 @@ quiet music bed. Everything is synthesised here, so there is no licence to
 track. render.py writes the cue list (events-<aspect>.json); this turns it into
 audio-<aspect>.wav.
 
-    python3 launch/edit/sound.py 16x9 [music.wav]
+    python3 launch/edit/sound.py 16x9 [music]
 
-Pass a music file to use it instead of the built-in bed: it is trimmed,
-faded and laid under the effects at the same level.
+There is no music unless asked for: pass a music file to lay it under the
+effects (trimmed and faded), or `builtin` for the synthesised bed below.
 
 THE VOICE-OVER. When launch/assets/voiceover.(wav|mp3|m4a) exists, it is one
 take of the lines in launch/voiceover.json, read in order with a short pause
@@ -328,7 +328,13 @@ def main():
         effects[at:at + len(sound)] += sound
     effects = reverb(effects[:n], 0.8, 0.12)
 
-    bed = load_music(sys.argv[2], length) if len(sys.argv) > 2 else reverb(music(length), 1.6, 0.25)
+    choice = sys.argv[2] if len(sys.argv) > 2 else ""
+    if choice == "builtin":
+        bed = reverb(music(length), 1.6, 0.25)
+    elif choice:
+        bed = load_music(choice, length)
+    else:
+        bed = np.zeros(n)
     # In over the first second, out under the end card.
     t = np.arange(n) / RATE
     bed *= np.minimum(1, t / 1.0) * np.minimum(1, np.maximum(0, (length - t) / 1.6))

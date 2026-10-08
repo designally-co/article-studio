@@ -15,7 +15,7 @@ publishing, and the live page on the Knowledge Hub.
 launch/run.sh            # capture, then edit (about 10 minutes)
 launch/run.sh capture    # only film the app
 launch/run.sh edit       # only cut the video from the last capture
-MUSIC=track.mp3 launch/run.sh edit   # use your own music instead of the built-in bed
+MUSIC=track.mp3 launch/run.sh edit   # add music under the effects (MUSIC=builtin for the synthesised bed)
 ```
 
 You need Node 22, Python 3 with Pillow and NumPy, ffmpeg, Chromium (set
@@ -58,8 +58,9 @@ step change, then moves the clock to just before the next one.
   with easeInOutCubic camera moves, 7-frame crossfades, the pill, the drawn
   cursor and a coral ripple on each click. Timing is written against the
   capture's named marks, so a new capture cuts the same way.
-- `sound.py` builds the soundtrack: typing, clicks, whooshes, soft step ticks,
-  a chime on "Published" and a calm music bed, all synthesised.
+- `sound.py` builds the soundtrack: the voice-over and the effects (typing,
+  clicks, whooshes, soft step ticks, a chime on "Published"), all synthesised
+  except the voice. There is no music unless `MUSIC` is set.
 
 ## Voice-over
 
@@ -68,7 +69,7 @@ its shot begins. To add the voice, put one recording of all the lines, in
 order with a short pause between them, at `assets/voiceover.wav` (or `.mp3`,
 `.m4a`), then run `launch/run.sh edit`. `edit/sound.py` splits the take at the
 pauses that best match each line's length, places each line on its shot, dips
-the music under the voice, and writes `article-studio-launch.srt` with the same
+the effects (and any music) under the voice, and writes `article-studio-launch.srt` with the same
 timings. Upload that file as captions on LinkedIn, where most people watch
 with the sound off.
 
