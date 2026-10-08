@@ -124,10 +124,10 @@ tables:
     sensitive: false
   - name: users
     description: Team accounts.
-    sensitive: true
+    sensitive: false
   - name: api_keys
     description: Saved image provider API keys, encrypted.
-    sensitive: true
+    sensitive: false
 
 connections:
   - to: knowledge-hub
