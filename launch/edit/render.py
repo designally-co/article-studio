@@ -147,7 +147,7 @@ CLIPS = [
     ),
     Clip("end", None, parts=[], cam={}),
 ]
-END_FRAMES = 84
+END_FRAMES = 120  # long enough for the closing line of the voice-over
 
 
 # --- frames --------------------------------------------------------------------
@@ -325,6 +325,7 @@ def main():
     for c, clip in enumerate(CLIPS):
         frames = list(render_clip(clip, source, aspect, overlays))
         start = cursor_frame
+        events.append({"frame": start, "kind": "clip", "name": clip.name})  # anchors the voice-over
         if c:
             events.append({"frame": start, "kind": "whoosh"})
         for i, (frame, sounds) in enumerate(frames):

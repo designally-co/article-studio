@@ -123,7 +123,11 @@ edit() {
     -af loudnorm=I=-16:TP=-1.5:LRA=11 -ar 48000 -c:a aac -b:a 160k -shortest -movflags +faststart "$LAUNCH/article-studio-launch.mp4"
   ffmpeg -y -loglevel error -i "$WORK/video-4x5.mp4" -i "$WORK/audio-4x5.wav" -map 0:v -map 1:a -c:v copy \
     -af loudnorm=I=-16:TP=-1.5:LRA=11 -ar 48000 -c:a aac -b:a 160k -shortest -movflags +faststart "$LAUNCH/article-studio-launch-4x5.mp4"
-  ls -lh "$LAUNCH"/article-studio-launch*.mp4
+  # Captions for LinkedIn's upload, when there is a voice-over (the timing is the same in both cuts).
+  if [ -f "$WORK/captions-16x9.srt" ] && ls "$LAUNCH"/assets/voiceover.* > /dev/null 2>&1; then
+    cp "$WORK/captions-16x9.srt" "$LAUNCH/article-studio-launch.srt"
+  fi
+  ls -lh "$LAUNCH"/article-studio-launch*
 }
 
 case "$STAGE" in

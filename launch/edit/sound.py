@@ -8,6 +8,13 @@ audio-<aspect>.wav.
 
 Pass a music file to use it instead of the built-in bed: it is trimmed,
 faded and laid under the effects at the same level.
+
+THE VOICE-OVER. When launch/assets/voiceover.(wav|mp3|m4a) exists, it is one
+take of the lines in launch/voiceover.json, read in order with a short pause
+between them. It is split at its longest pauses, one piece per line, and
+each piece starts at its line's shot. The music dips under the voice, and a
+caption file (captions-<aspect>.srt) is written with the same timings, for
+LinkedIn's caption upload: most people watch with the sound off.
 """
 import json
 import subprocess
@@ -18,7 +25,8 @@ from pathlib import Path
 import numpy as np
 
 HERE = Path(__file__).resolve().parent
-WORK = HERE.parent / ".work"
+LAUNCH = HERE.parent
+WORK = LAUNCH / ".work"
 RATE = 48000
 rng = np.random.default_rng(7)  # the same "random" every run
 
@@ -186,12 +194,104 @@ def reverb(x, size=1.1, mix=0.18):
     return x * (1 - mix) + wet * mix * 3
 
 
-def load_music(path, length):
+def decode(path):
     raw = subprocess.run(["ffmpeg", "-loglevel", "error", "-i", str(path), "-ac", "1", "-ar", str(RATE), "-f", "f32le", "-"],
                          capture_output=True, check=True).stdout
-    track = np.frombuffer(raw, dtype=np.float32).astype(np.float64)
+    return np.frombuffer(raw, dtype=np.float32).astype(np.float64)
+
+
+def load_music(path, length):
+    track = decode(path)
     track = np.pad(track, (0, max(0, int(length * RATE) - len(track))))[: int(length * RATE)]
     return track / (np.max(np.abs(track)) + 1e-9) * 0.35
+
+
+# --- voice-over ----------------------------------------------------------------
+
+def voice_file():
+    found = sorted(LAUNCH.glob("assets/voiceover.*"))
+    return found[0] if found else None
+
+
+def split_take(take, texts):
+    """Cuts one take into one piece per line.
+
+    The cuts go in pauses, and among the possible pauses the ones chosen are
+    those that make each piece's share of the take closest to its line's share
+    of the script's letters, so a pause inside a line ("Article Studio.
+    Designed and built by…") is not mistaken for the gap between two lines."""
+    count = len(texts)
+    hop = int(0.02 * RATE)
+    rms = np.sqrt(np.convolve(take ** 2, np.ones(hop) / hop, mode="same"))[::hop]
+    loud = rms > np.max(rms) * 10 ** (-34 / 20)
+    voiced = np.flatnonzero(loud)
+    first, last = int(voiced[0]), int(voiced[-1]) + 1
+    gaps = []  # (start, end) of each quiet run of at least 120 ms inside the take
+    run = None
+    for i in range(first, last):
+        if not loud[i] and run is None:
+            run = i
+        elif loud[i] and run is not None:
+            if i - run >= 6:
+                gaps.append((run, i))
+            run = None
+    if len(gaps) < count - 1:
+        raise SystemExit(f"The voice-over has {len(gaps) + 1} parts; voiceover.json has {count} lines.")
+
+    letters = np.array([len(t) for t in texts], dtype=float)
+    target = np.cumsum(letters)[:-1] / letters.sum()  # where each cut should fall, as a share
+    position = [((a + b) / 2 - first) / (last - first) for a, b in gaps]
+    # best[k][j]: the lowest cost with cut k placed in gap j (cuts in order).
+    inf = float("inf")
+    best = [[inf] * len(gaps) for _ in range(count - 1)]
+    back = [[-1] * len(gaps) for _ in range(count - 1)]
+    for j in range(len(gaps)):
+        best[0][j] = (position[j] - target[0]) ** 2
+    for k in range(1, count - 1):
+        for j in range(len(gaps)):
+            for i in range(j):
+                cost = best[k - 1][i] + (position[j] - target[k]) ** 2
+                if cost < best[k][j]:
+                    best[k][j], back[k][j] = cost, i
+    j = min(range(len(gaps)), key=lambda g: best[count - 2][g])
+    chosen = []
+    for k in range(count - 2, -1, -1):
+        chosen.append(gaps[j])
+        j = back[k][j]
+    chosen.reverse()
+
+    bounds = [first] + [x for a, b in chosen for x in (a, b)] + [last]
+    pad = int(0.04 * RATE)
+    return [take[max(0, a * hop - pad): b * hop + pad] for a, b in zip(bounds[::2], bounds[1::2])]
+
+
+def place_voice(cues, n):
+    """The voice track, and the caption cues (start, end, text) in seconds."""
+    script = json.loads((LAUNCH / "voiceover.json").read_text())["lines"]
+    take = decode(voice_file())
+    take /= np.max(np.abs(take)) + 1e-9
+    pieces = split_take(take, [line["text"] for line in script])
+    starts = {e["name"]: e["frame"] / cues["fps"] for e in cues["events"] if e["kind"] == "clip"}
+    track = np.zeros(n + len(take) + RATE)
+    captions = []
+    free_from = 0.0
+    for line, piece in zip(script, pieces):
+        at = max(starts[line["clip"]] + line["offset"], free_from)
+        i = int(at * RATE)
+        track[i:i + len(piece)] += piece
+        end = at + len(piece) / RATE
+        captions.append((at, end, line["text"]))
+        free_from = end + 0.15
+    if free_from - 0.15 > n / RATE:
+        print(f"warning: the voice runs {free_from - 0.15 - n / RATE:.2f}s past the end of the video")
+    return track[:n], captions
+
+
+def srt(captions):
+    def stamp(t):
+        ms = int(round(t * 1000))
+        return f"{ms // 3600000:02}:{ms // 60000 % 60:02}:{ms // 1000 % 60:02},{ms % 1000:03}"
+    return "\n".join(f"{i}\n{stamp(a)} --> {stamp(b)}\n{text}\n" for i, (a, b, text) in enumerate(captions, 1))
 
 
 def main():
@@ -204,6 +304,8 @@ def main():
     last_key = -1
     for event in cues["events"]:
         kind = event["kind"]
+        if kind not in EFFECTS:
+            continue
         at = int(event["frame"] / cues["fps"] * RATE)
         if kind == "key":
             # Typing runs at one character a frame; a key every other frame is
@@ -222,7 +324,18 @@ def main():
     bed *= np.minimum(1, t / 1.0) * np.minimum(1, np.maximum(0, (length - t) / 1.6))
     bed *= 0.55
 
-    mix = effects + bed
+    voice = np.zeros(n)
+    if voice_file():
+        voice, captions = place_voice(cues, n)
+        (WORK / f"captions-{aspect}.srt").write_text(srt(captions))
+        # The music and the effects step back while someone is speaking.
+        level = np.convolve(np.abs(voice), np.ones(int(0.25 * RATE)) / int(0.25 * RATE), mode="same")
+        level = np.minimum(1, level / (np.max(level) * 0.35 + 1e-9))
+        bed *= 1 - 0.7 * level
+        effects *= 1 - 0.4 * level
+        voice *= 0.9
+
+    mix = effects + bed + voice
     mix /= max(1.0, np.max(np.abs(mix)) / 0.89)  # peak at about -1 dBFS
     stereo = np.stack([mix, mix], axis=1)
     pcm = (np.clip(stereo, -1, 1) * 32767).astype(np.int16)

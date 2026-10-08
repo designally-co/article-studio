@@ -61,6 +61,17 @@ step change, then moves the clock to just before the next one.
 - `sound.py` builds the soundtrack: typing, clicks, whooshes, soft step ticks,
   a chime on "Published" and a calm music bed, all synthesised.
 
+## Voice-over
+
+The script is `voiceover.json`: one line per shot, each starting a little after
+its shot begins. To add the voice, put one recording of all the lines, in
+order with a short pause between them, at `assets/voiceover.wav` (or `.mp3`,
+`.m4a`), then run `launch/run.sh edit`. `edit/sound.py` splits the take at the
+pauses that best match each line's length, places each line on its shot, dips
+the music under the voice, and writes `article-studio-launch.srt` with the same
+timings. Upload that file as captions on LinkedIn, where most people watch
+with the sound off.
+
 ## Changing it
 
 - **The article:** edit `story.mjs`. If the title changes, the image prompt
