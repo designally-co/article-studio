@@ -165,8 +165,9 @@ history.
 - a verified backup;
 - the migration count from `/api/health` (`schema.applied`).
 
-After it, `schema.applied` must equal `schema.expected`. This pull request adds
-no migrations; production has 28.
+After it, `schema.applied` must equal `schema.expected`.
+
+**Migration 0030 moves every table from `public` to `studio`** (`decisions/tables-in-schema-studio.md`). Run it the same way as any other, with the image of the release that ships it, and only then switch the stack to that image: an older image looks for its tables in `public` and finds none, and the new image against an unmigrated database looks in `studio`. The same run copies the migration history from `drizzle` to `studio` first, so only 0030 is applied. Afterwards `schema.applied` is 31.
 
 **One owner, and only one.** Vercel used to apply migrations on every
 production deploy, through a `vercel-build` script. That script and

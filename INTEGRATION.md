@@ -101,6 +101,8 @@ scripts/migrate.ts          standalone migration runner
 
 All tables live in `src/db/schema.ts`. Postgres, UUID primary keys (`defaultRandom()`), timestamps with time zone.
 
+**Every table is in the Postgres schema `studio`, not `public`** (migration 0030), and so is the migrations' bookkeeping (`studio.__drizzle_migrations`; it was `drizzle.__drizzle_migrations` before). The app is moving into Project Friday, the company's one Supabase project, where other apps' tables sit beside these (`projects` and `users` exist there too) and where the app connects as a user that can reach `studio` only. Drizzle qualifies every table it writes (`"studio"."projects"`); raw SQL must do the same, by embedding the table object (`sql`update ${routineRuns} …``), never a bare name. A database migrated before 0030 has its history in `drizzle`; on its next migration run it is copied to `studio` once (`src/db/index.ts`, `scripts/migrate.ts`), so only 0030 runs. Decision note: `decisions/tables-in-schema-studio.md`.
+
 ### Core
 
 **`users`** — `id`, `email` (unique), `password_hash` (nullable since migration 0018, and null for every Google sign-in), `name`, `role` (default `member`), `active`, `created_at`.
@@ -395,7 +397,7 @@ Sign in with a `designally.co` Google account; your user row (an admin) is creat
 **Migrations:**
 
 ```bash
-npm run db:generate            # drizzle-kit generate, after editing src/db/schema.ts
+npm run db:generate            # drizzle-kit generate, after editing src/db/schema.ts (snapshots stop at 0018: check what it writes, or write the SQL by hand as 0019 to 0030 were)
 npm run db:migrate             # apply against DATABASE_URL
 ```
 

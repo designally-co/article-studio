@@ -23,6 +23,29 @@ if (!url) {
 const client = postgres(url, { prepare: false, max: 1 });
 const db = drizzle(client);
 
-await migrate(db, { migrationsFolder: "drizzle" });
+/**
+ * The migrations' bookkeeping lives in the schema `studio`, beside the tables
+ * (decisions/tables-in-schema-studio.md). Until migration 0030 it lived in
+ * Drizzle's default schema, `drizzle`. A database migrated before then has its
+ * history there and none in `studio`, and the migrator would read "nothing
+ * applied" and run 0000 again over tables that exist. So, once, the history is
+ * copied across, timestamps included: Drizzle runs every migration newer than
+ * the last recorded one, so with the copy it runs only what is really new. The
+ * old table is left in place, untouched. Keep this identical to the copy in
+ * src/db/index.ts; it is repeated because the release image ships this file on
+ * its own.
+ */
+await client.unsafe(`DO $adopt$
+BEGIN
+  IF to_regclass('drizzle.__drizzle_migrations') IS NOT NULL
+     AND to_regclass('studio.__drizzle_migrations') IS NULL THEN
+    CREATE SCHEMA IF NOT EXISTS studio;
+    CREATE TABLE studio.__drizzle_migrations (id SERIAL PRIMARY KEY, hash text NOT NULL, created_at bigint);
+    INSERT INTO studio.__drizzle_migrations (hash, created_at)
+      SELECT hash, created_at FROM drizzle.__drizzle_migrations ORDER BY id;
+  END IF;
+END $adopt$`);
+
+await migrate(db, { migrationsFolder: "drizzle", migrationsSchema: "studio" });
 await client.end();
 console.log("Migrations applied.");
