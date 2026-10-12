@@ -84,49 +84,68 @@ features:
 
 tables:
   - name: projects
+    schema: studio
     description: One row per article, with its inputs, topic, plan and stage.
     sensitive: false
   - name: drafts
+    schema: studio
     description: The article draft in Markdown, with token use and cost.
     sensitive: false
   - name: refinements
+    schema: studio
     description: History of chat refinements and earlier draft versions.
     sensitive: false
   - name: images
+    schema: studio
     description: Generated images and where they are stored.
     sensitive: false
   - name: image_references
+    schema: studio
     description: Reference images uploaded to guide image generation.
     sensitive: false
   - name: brand_profiles
+    schema: studio
     description: The single Designally brand profile, including the logo.
     sensitive: false
   - name: pillars
+    schema: studio
     description: Content pillars (top-level groups), seeded from code.
     sensitive: false
   - name: categories
+    schema: studio
     description: Content directions under a pillar. Each one matches a Knowledge Hub tag.
     sensitive: false
   - name: routines
+    schema: studio
     description: Saved schedules for unattended articles.
     sensitive: false
   - name: routine_runs
+    schema: studio
     description: One row per unattended article run, with its current step and status.
     sensitive: false
   - name: app_settings
+    schema: studio
     description: Key-value settings (article prompt, article length, model choices).
     sensitive: false
   - name: api_usage_log
+    schema: studio
     description: Per-call record of model, tokens, cost and speed.
     sensitive: false
   - name: pricing
+    schema: studio
     description: Old price list per model. Kept for compatibility; not used.
     sensitive: false
   - name: users
+    schema: studio
     description: Team accounts.
     sensitive: false
   - name: api_keys
+    schema: studio
     description: Saved image provider API keys, encrypted.
+    sensitive: false
+  - name: __drizzle_migrations
+    schema: studio
+    description: The database updates (migrations) applied so far, kept by Drizzle.
     sensitive: false
 
 connections:
