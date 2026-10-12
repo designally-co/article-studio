@@ -117,7 +117,7 @@ Vercel production environment. They never pass through Git, tickets or chat.
 | Name | Required | Notes |
 |---|---|---|
 | `IMAGE_TAG` | yes | `sha-<full commit>` from the release run summary. |
-| `DATABASE_URL` | yes | Supabase **session** pooler, port 5432. Not the transaction pooler on 6543 (INTEGRATION.md §11). |
+| `DATABASE_URL` | yes | Supabase **session** pooler, port 5432. Not the transaction pooler on 6543 (INTEGRATION.md §11). After the move into Project Friday (designally-brain `docs/app-moves.md`), Friday's session pooler string for the user `studio_app`, never `postgres`. |
 | `AUTH_SECRET` | yes | **Copy the exact value.** A different one signs everybody out. |
 | `AUTH_GOOGLE_ID` | yes | The existing OAuth client. |
 | `AUTH_GOOGLE_SECRET` | yes | The existing OAuth client. |

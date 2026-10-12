@@ -37,8 +37,15 @@ const db = drizzle(client);
  */
 await client.unsafe(`DO $adopt$
 BEGIN
-  IF to_regclass('drizzle.__drizzle_migrations') IS NOT NULL
-     AND to_regclass('studio.__drizzle_migrations') IS NULL THEN
+  -- Only Studio's own old layout: its tables still in public and its history in
+  -- drizzle. In a shared database (Project Friday) another app's drizzle history
+  -- must never be adopted, and that schema may not even be readable: the catalog
+  -- check below needs no right on it, to_regclass would.
+  IF to_regclass('studio.__drizzle_migrations') IS NULL
+     AND to_regclass('public.brand_profiles') IS NOT NULL
+     AND EXISTS (SELECT FROM pg_catalog.pg_class c
+                 JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+                 WHERE n.nspname = 'drizzle' AND c.relname = '__drizzle_migrations') THEN
     CREATE SCHEMA IF NOT EXISTS studio;
     CREATE TABLE studio.__drizzle_migrations (id SERIAL PRIMARY KEY, hash text NOT NULL, created_at bigint);
     INSERT INTO studio.__drizzle_migrations (hash, created_at)
