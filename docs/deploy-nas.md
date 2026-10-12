@@ -167,7 +167,7 @@ history.
 
 After it, `schema.applied` must equal `schema.expected`.
 
-**Migration 0030 moves every table from `public` to `studio`** (`decisions/tables-in-schema-studio.md`). Run it the same way as any other, with the image of the release that ships it, and only then switch the stack to that image: an older image looks for its tables in `public` and finds none, and the new image against an unmigrated database looks in `studio`. The same run copies the migration history from `drizzle` to `studio` first, so only 0030 is applied. Afterwards `schema.applied` is 31. **Applied in production on 2026-10-12** (approved by Ake): the same statements, the history row included, ran as one transaction through the Supabase connector, after a run on the real data that undid itself; then the stack moved to `release-2026-10-12` (`sha-2c770ef5a3756c435f8c613a506c4479eab5b583`), and `/api/health` showed 31 of 31.
+**Migration 0030 moves every table from `public` to `studio`** (`decisions/tables-in-schema-studio.md`). Run it the same way as any other, with the image of the release that ships it, and only then switch the stack to that image: an older image looks for its tables in `public` and finds none, and the new image against an unmigrated database looks in `studio`. The same run copies the migration history from `drizzle` to `studio` first, so only 0030 is applied. Afterwards `schema.applied` is 31. **Applied in production on 2026-10-12** (approved by P Aek, Buk 2026-10-12): the same statements, the history row included, ran as one transaction through the Supabase connector, after a run on the real data that undid itself; then the stack moved to `release-2026-10-12` (`sha-2c770ef5a3756c435f8c613a506c4479eab5b583`), and `/api/health` showed 31 of 31. **On 2026-10-12 the database moved into Project Friday** (approved by P Aek, Buk 2026-10-12): the workflow "Studio move" in designally-brain copied `studio` in one transaction and compared every table, and the stack's `DATABASE_URL` became Friday's `studio_app` string; `/api/health` 31 of 31. A migration run now uses that string too.
 
 **One owner, and only one.** Vercel used to apply migrations on every
 production deploy, through a `vercel-build` script. That script and
@@ -321,9 +321,12 @@ runbook's "Evidence packet per release".
 
 ## 11. Open decisions for Ake
 
-- [ ] **Supabase.** Keep the current project for this release, as a
-      runtime-only move? Or transfer it? Who owns it, and in which organisation
-      and region?
+- [x] **Supabase.** Decided by P Aek (Buk, 2026-10-09): every project is
+      combined into Project Friday (`urzwmhoujpphumruhgkv`, owned by P Aek). Done on
+      2026-10-12: schema `studio` copied there, the app logs in as `studio_app`
+      (designally-brain `docs/app-moves.md`). The old project
+      (`rnuhflupruqkqxqfnctu`) is kept, unused, for about a week as the way
+      back, then deleted.
 - [ ] **GHCR.** Package visibility for `article-studio`, the package the next
       release publishes to. The registry login Portainer already uses covers
       the organisation; confirm with the first pull under the new name.
