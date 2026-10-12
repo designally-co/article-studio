@@ -7,10 +7,36 @@ import { migrate as migratePostgres } from "drizzle-orm/postgres-js/migrator";
 import * as schema from "./schema";
 import { seedIfEmpty } from "./seed";
 import { localFallbacksAllowed } from "../lib/local-fallbacks";
+import { sql } from "drizzle-orm";
 
 export type DB = PgliteDatabase<typeof schema> | PostgresJsDatabase<typeof schema>;
 
 const MIGRATIONS = path.join(process.cwd(), "drizzle");
+
+/**
+ * The migrations' bookkeeping lives in the schema `studio`, beside the tables
+ * (decisions/tables-in-schema-studio.md). Until migration 0030 it lived in
+ * Drizzle's default schema, `drizzle`. A database migrated before then has its
+ * history there and none in `studio`, and the migrator would read "nothing
+ * applied" and run 0000 again over tables that exist. So, once, the history is
+ * copied across, timestamps included: Drizzle runs every migration newer than
+ * the last recorded one, so with the copy it runs only what is really new. The
+ * old table is left in place, untouched. Keep this identical to the copy in
+ * scripts/migrate.ts (the release image ships that file on its own).
+ */
+export const MIGRATIONS_SCHEMA = "studio";
+const ADOPT_LEGACY_BOOKKEEPING = `DO $adopt$
+BEGIN
+  IF to_regclass('drizzle.__drizzle_migrations') IS NOT NULL
+     AND to_regclass('studio.__drizzle_migrations') IS NULL THEN
+    CREATE SCHEMA IF NOT EXISTS studio;
+    CREATE TABLE studio.__drizzle_migrations (id SERIAL PRIMARY KEY, hash text NOT NULL, created_at bigint);
+    INSERT INTO studio.__drizzle_migrations (hash, created_at)
+      SELECT hash, created_at FROM drizzle.__drizzle_migrations ORDER BY id;
+  END IF;
+END $adopt$`;
+
+const migrationConfig = { migrationsFolder: MIGRATIONS, migrationsSchema: MIGRATIONS_SCHEMA };
 
 type Cache = { db: DB; ready: Promise<void> };
 
@@ -66,7 +92,10 @@ function create(): Cache {
     const ready = (
       skipMigrate
         ? Promise.resolve()
-        : migratePostgres(db, { migrationsFolder: MIGRATIONS }).then(() => seedIfEmpty(db))
+        : db
+            .execute(sql.raw(ADOPT_LEGACY_BOOKKEEPING))
+            .then(() => migratePostgres(db, migrationConfig))
+            .then(() => seedIfEmpty(db))
     ).catch((error: unknown) => {
       // Never let a migration/seed hiccup take down every request: getDb()
       // awaits this, so a rejection here 500s the whole page even though the
@@ -94,9 +123,10 @@ function create(): Cache {
   const { PGlite } = require("@electric-sql/pglite") as typeof import("@electric-sql/pglite");
   const client = new PGlite(dataDir);
   const db = drizzlePglite(client, { schema });
-  const ready = migratePglite(db, { migrationsFolder: MIGRATIONS }).then(() =>
-    seedIfEmpty(db)
-  );
+  const ready = db
+    .execute(sql.raw(ADOPT_LEGACY_BOOKKEEPING))
+    .then(() => migratePglite(db, migrationConfig))
+    .then(() => seedIfEmpty(db));
   return { db, ready };
 }
 

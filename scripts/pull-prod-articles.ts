@@ -45,12 +45,18 @@ if (!DATABASE_URL) {
 
 const prod = postgres(DATABASE_URL, { max: 1 });
 const local = new PGlite("./data/pg");
+/* The tables live in the schema `studio` (migration 0030), and every query
+   below names them bare. One connection each, so this holds for the whole run.
+   The local database must have been started once with this build, so its
+   tables have moved too. */
+await prod`set search_path = studio`;
+await local.query("set search_path = studio");
 
 /** Column names as the database reports them, so nothing is hard-coded here. */
 async function columnsOf(table: string): Promise<string[]> {
   const rows = (await prod`
     select column_name from information_schema.columns
-    where table_schema = 'public' and table_name = ${table}
+    where table_schema = 'studio' and table_name = ${table}
     order by ordinal_position
   `) as unknown as { column_name: string }[];
   return rows.map((r) => r.column_name);

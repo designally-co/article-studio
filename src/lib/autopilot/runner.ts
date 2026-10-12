@@ -281,8 +281,10 @@ async function claimRun(onlyRunId?: string) {
   /* `onlyRunId` is how the Routines page takes the run it is watching rather
      than whichever is oldest. Same claim, same lock, narrower target. */
   const target = onlyRunId ?? null;
+  /* ${routineRuns} renders as "studio"."routine_runs": the tables are not in
+     `public`, so a bare name would depend on the connection's search_path. */
   const result = await db.execute(sql`
-    update routine_runs set
+    update ${routineRuns} set
       -- COUNTED HERE, NOT ON FAILURE. A step killed by the platform never
       -- reaches our error handler, so an attempt counted at the end is an
       -- attempt never counted at all — and a run that cannot record failure
@@ -292,7 +294,7 @@ async function claimRun(onlyRunId?: string) {
       locked_until = now() + (${claimMs} || ' milliseconds')::interval,
       updated_at = now()
     where id = (
-      select id from routine_runs
+      select id from ${routineRuns}
       where status = 'running'
         and (locked_until is null or locked_until < now())
         and (${target}::uuid is null or id = ${target}::uuid)

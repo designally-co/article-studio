@@ -19,6 +19,8 @@ import type { getDb } from "@/db";
  * their own. Together they mean a schema change can ship, deploy green, and
  * break only the pages that touch the new column.
  *
+ * The bookkeeping lives in `studio` (src/db/index.ts, MIGRATIONS_SCHEMA).
+ *
  * The count of applied migrations against the count this build ships is enough
  * to catch it, and it is one cheap query. Unlike the Hub, this IS part of `ok`:
  * a database behind the code is not a degraded feature, it is pages that 500.
@@ -38,7 +40,7 @@ export async function checkSchema(db: Awaited<ReturnType<typeof getDb>>): Promis
   const expected = journal.entries.length;
   try {
     const result = await db.execute(
-      sql`select count(*)::int as applied from drizzle."__drizzle_migrations"`
+      sql`select count(*)::int as applied from studio."__drizzle_migrations"`
     );
     // postgres-js returns the rows directly; PGlite wraps them in `.rows`.
     const rows = (Array.isArray(result) ? result : (result as { rows?: unknown[] }).rows) ?? [];

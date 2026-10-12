@@ -1,6 +1,6 @@
 import type { RoutineScheduleKind } from "@/lib/autopilot/schedule";
 import {
-  pgTable,
+  pgSchema,
   text,
   integer,
   boolean,
@@ -15,7 +15,18 @@ export type Language = "th" | "en" | "both";
 export type ProjectStatus = "draft" | "published";
 export type ApprovalOutcome = "approved_first" | "approved_edited" | "rejected";
 
-export const users = pgTable("users", {
+/**
+ * Every table lives in the Postgres schema `studio`, not `public`. Article Studio
+ * is moving into Project Friday, the one Supabase project the company keeps, and
+ * there its tables sit beside other apps' (`projects` and `users` exist there
+ * already): one schema per app keeps the names apart and lets the app's own
+ * database user reach `studio` and nothing else. Migration 0030 moved the tables;
+ * the migrations' bookkeeping lives in `studio` too (src/db/index.ts,
+ * scripts/migrate.ts). Decision note: decisions/tables-in-schema-studio.md.
+ */
+export const studio = pgSchema("studio");
+
+export const users = studio.table("users", {
   id: uuid("id").primaryKey().defaultRandom(),
   email: text("email").notNull().unique(),
   /**
@@ -73,7 +84,7 @@ export const DEFAULT_LOGO_OVERLAY: LogoOverlay = {
   shadow: true,
 };
 
-export const brandProfiles = pgTable("brand_profiles", {
+export const brandProfiles = studio.table("brand_profiles", {
   id: uuid("id").primaryKey().defaultRandom(),
   name: text("name").notNull(),
   /** Legacy profile-image fields retained temporarily for migration fallback. */
@@ -105,7 +116,7 @@ export const brandProfiles = pgTable("brand_profiles", {
 });
 
 /** Content Core Pillars — the four top-level editorial territories. */
-export const pillars = pgTable("pillars", {
+export const pillars = studio.table("pillars", {
   id: uuid("id").primaryKey().defaultRandom(),
   /** Stable slug matching CONTENT_PILLARS in @/lib/content-pillars. */
   slug: text("slug").notNull().unique(),
@@ -120,7 +131,7 @@ export const pillars = pgTable("pillars", {
  * Content directions — the selectable sub-categories under a pillar.
  * (Historically a flat "categories" list; now nested under a pillar.)
  */
-export const categories = pgTable("categories", {
+export const categories = studio.table("categories", {
   id: uuid("id").primaryKey().defaultRandom(),
   name: text("name").notNull(),
   nameTh: text("name_th").notNull().default(""),
@@ -256,7 +267,7 @@ export type Outline = {
   approved: boolean;
 };
 
-export const projects = pgTable("projects", {
+export const projects = studio.table("projects", {
   id: uuid("id").primaryKey().defaultRandom(),
   // The system is single-brand (Designally). The brand is a singleton loaded
   // via getBrand(); projects no longer carry a per-project brand reference.
@@ -277,7 +288,7 @@ export const projects = pgTable("projects", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
-export const drafts = pgTable("drafts", {
+export const drafts = studio.table("drafts", {
   id: uuid("id").primaryKey().defaultRandom(),
   projectId: uuid("project_id")
     .notNull()
@@ -291,7 +302,7 @@ export const drafts = pgTable("drafts", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
-export const refinements = pgTable("refinements", {
+export const refinements = studio.table("refinements", {
   id: uuid("id").primaryKey().defaultRandom(),
   projectId: uuid("project_id")
     .notNull()
@@ -307,7 +318,7 @@ export const refinements = pgTable("refinements", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
-export const images = pgTable("images", {
+export const images = studio.table("images", {
   id: uuid("id").primaryKey().defaultRandom(),
   projectId: uuid("project_id")
     .notNull()
@@ -340,7 +351,7 @@ export type RoutineHubStatus = "draft" | "published";
    readers speak one vocabulary. */
 export type { RoutineScheduleKind };
 
-export const routines = pgTable("routines", {
+export const routines = studio.table("routines", {
   id: uuid("id").primaryKey().defaultRandom(),
   name: text("name").notNull().default("Routine"),
   /** What it is for, in a line. Optional. */
@@ -439,7 +450,7 @@ export type RoutineRunStatus = "running" | "done" | "failed" | "skipped";
  */
 export type RoutineRunTrigger = "schedule" | "manual";
 
-export const routineRuns = pgTable("routine_runs", {
+export const routineRuns = studio.table("routine_runs", {
   id: uuid("id").primaryKey().defaultRandom(),
   routineId: uuid("routine_id")
     .notNull()
@@ -472,7 +483,7 @@ export const routineRuns = pgTable("routine_runs", {
 export type ReferenceOrigin = "upload" | "article_source" | "open_license";
 
 /** Source images that may guide one or more image generations. */
-export const imageReferences = pgTable("image_references", {
+export const imageReferences = studio.table("image_references", {
   id: uuid("id").primaryKey().defaultRandom(),
   projectId: uuid("project_id")
     .notNull()
@@ -508,7 +519,7 @@ export const imageReferences = pgTable("image_references", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
-export const apiUsageLog = pgTable("api_usage_log", {
+export const apiUsageLog = studio.table("api_usage_log", {
   id: uuid("id").primaryKey().defaultRandom(),
   projectId: uuid("project_id").references(() => projects.id, {
     onDelete: "set null",
@@ -531,7 +542,7 @@ export const apiUsageLog = pgTable("api_usage_log", {
 
 export type PricingUnit = "mtok_in" | "mtok_out" | "image";
 
-export const pricing = pgTable("pricing", {
+export const pricing = studio.table("pricing", {
   id: uuid("id").primaryKey().defaultRandom(),
   provider: text("provider").notNull(),
   model: text("model").notNull(),
@@ -543,7 +554,7 @@ export const pricing = pgTable("pricing", {
 });
 
 /** App-level settings stored as key/value (e.g. selected drafting model). */
-export const appSettings = pgTable("app_settings", {
+export const appSettings = studio.table("app_settings", {
   key: text("key").primaryKey(),
   value: text("value").notNull(),
 });
@@ -554,7 +565,7 @@ export const appSettings = pgTable("app_settings", {
  * generation time. If a provider has no saved rows, its env var is used
  * instead — see src/lib/secrets.ts.
  */
-export const apiKeys = pgTable("api_keys", {
+export const apiKeys = studio.table("api_keys", {
   id: uuid("id").primaryKey().defaultRandom(),
   provider: text("provider").notNull(),
   label: text("label").notNull(),
