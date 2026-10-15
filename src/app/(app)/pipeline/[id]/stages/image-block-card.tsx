@@ -38,8 +38,9 @@ type BoxAction = {
 /**
  * THE ONE IMAGE BOX, for the cover and for every slot in the article (build
  * session, 2026-10-15: "simplify the image box"). No header, no status tag,
- * no dividers. With a picture: its name sits on the picture's top-left and
- * Remove on its top-right, and the ways to replace it sit under it. Empty:
+ * no dividers, no visible name (it read as a button; it stays as the box's
+ * accessible name). With a picture: Remove on its top-right, and the ways to
+ * replace it under it. Empty:
  * only the ways to fill it, centred in the box. A message appears only when
  * something needs the editor's attention.
  */
@@ -120,9 +121,8 @@ function ImageBox({
           // eslint-disable-next-line @next/next/no-img-element -- a stored image served by the app's own route
           <img src={image.url} alt={alt} className="block h-auto w-full bg-white" />
         ) : (
-          <div className="grid min-h-52 place-items-center px-6 pb-8 pt-14">{working ? workingLabel : buttons}</div>
+          <div className={`grid min-h-52 place-items-center px-6 py-8 ${onRemove ? "pt-14" : ""}`}>{working ? workingLabel : buttons}</div>
         )}
-        <span className={`${ON_IMAGE} pointer-events-none absolute left-3 top-3`}>{name}</span>
         {removeButton && <span className="absolute right-3 top-3">{removeButton}</span>}
       </div>
       {image && <div className="px-4 pt-3">{working ? workingLabel : buttons}</div>}
