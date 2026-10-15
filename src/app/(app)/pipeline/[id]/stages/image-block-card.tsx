@@ -253,27 +253,16 @@ export function ImageBlockCard({
       prompt={promptOpen ? <PromptRow onCancel={() => setPromptOpen(false)} onGenerate={(prompt) => fill("generate", prompt)} /> : null}
     >
       {onEdit ? (
-        /* The caption the reader sees, and the purpose Find, Generate and Draw
-           work from. Saved with the article when the field is left. */
-        <>
-          <BlockField
-            key={`caption:${block.caption}`}
-            label="Caption"
-            value={block.caption}
-            placeholder="The caption the reader sees under the picture"
-            onCommit={(caption) => onEdit({ ...block, caption, alt: block.alt || caption })}
-          />
-          <BlockField
-            key={`purpose:${block.purpose}`}
-            label="Purpose"
-            value={block.purpose}
-            placeholder="What the reader should understand from this picture"
-            onCommit={(purpose) => onEdit({ ...block, purpose })}
-          />
-        </>
-      ) : (
-        block.caption && <p className="text-ink">{block.caption}</p>
-      )}
+        /* Purpose only: what Find, Generate and Draw work from. Images carry no
+           caption (build session, 2026-10-15). */
+        <BlockField
+          key={`purpose:${block.purpose}`}
+          label="Purpose"
+          value={block.purpose}
+          placeholder="What the picture should show"
+          onCommit={(purpose) => onEdit({ ...block, purpose, alt: block.alt || purpose })}
+        />
+      ) : null}
       {image?.credit && (
         <p className="text-xs">
           {image.sourceUrl ? (

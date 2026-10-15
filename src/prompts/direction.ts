@@ -68,7 +68,6 @@ Place ${policy.min === policy.max ? `exactly ${policy.max}` : policy.min === 0 ?
 id: img-1
 role: ${policy.roles[0]}
 purpose: what the reader should understand from this picture, in one sentence
-caption: the caption the reader sees, one sentence, plain
 alt: what the picture shows, for someone who cannot see it
 suggested_route: ${routes[0]}
 search_hint: the specific subject to look for (the project, tool or resource by name) or the exact source URL
@@ -78,7 +77,7 @@ search_hint: the specific subject to look for (the project, tool or resource by 
 - role: ${policy.roles.join(" | ")}.
 - suggested_route: ${routes.join(" | ")}. ${routes.includes("find") ? "find = a real picture from a cited page; " : ""}${routes.includes("draw") ? "draw = a clean figure drawn from the purpose (any text in the figure comes from the drawing, never from a photograph); " : ""}upload = a person supplies it.
 - search_hint names the specific thing, never a general topic.
-- A disclaimer such as "fictional example" or "screen example only" goes in the caption, once, not in the body text.`;
+- Images carry no caption. A disclaimer such as "fictional example" or "screen example only" goes in ONE short line of the text next to the image, once.`;
 }
 
 /**
@@ -135,7 +134,7 @@ Never invent experience, clients, results, numbers or quotes. Never write "we wo
 ## Writing rules
 - Plain language: short sentences, common words, active voice. Explain any technical term in a few words the first time it appears.
 - Never use the em dash (—). Use a comma, a colon, parentheses or two sentences.
-- Disclaimers ("fictional example", "screen example only") go in an image caption or ONE short line, never repeated through the body.
+- Disclaimers ("fictional example", "screen example only") go in ONE short line, never repeated through the body. Images carry no caption.
 - Link sources inline on the name or claim they support.
 - No hashtags, no FAQ, no social-media caption, no sales pitch.${
     labels.pillar === "all_things_ai"
@@ -227,7 +226,6 @@ Pillar style: ${style.name}. ${style.summary}
 - ${style.worldRule}
 
 The picture's job (role "${params.role}"): ${params.purpose}
-Its caption: ${params.caption}
 Its subject: ${params.searchHint}
 
 Write one paragraph that a photographer or an editorial illustrator could work from: what is in frame, how it is arranged, the light or the technique, two to four colours. Concrete, about this article only.
@@ -252,7 +250,6 @@ export function drawFigureTask(params: {
 Article: ${params.title} (${TYPE_NAMES[params.labels.type]})
 Figure role: ${params.role}
 What the reader should understand: ${params.purpose}
-Caption under it: ${params.caption}
 
 The part of the article it sits in:
 ---
@@ -273,7 +270,7 @@ Rules:
 - Two to four flat colours plus a dark text colour. No gradients, no shadows, no filters, no images, no external links, no scripts, no <foreignObject>.
 - Text: font-family="Inter, DejaVu Sans, Arial, sans-serif", font-size 28 or larger, at most 8 words per label, at most 10 labels. Spell every word correctly; use only facts from the article.
 - Keep everything inside the canvas with at least 48px of margin.
-- No title and no caption or summary sentence anywhere in the figure: the caption is printed under it already. Text is only short labels on the parts.
+- No title and no caption or summary sentence anywhere in the figure. Text is only short labels on the parts.
 - Never use the em dash.`;
 }
 

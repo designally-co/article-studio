@@ -189,11 +189,12 @@ test("the summary line is lifted out of the body", () => {
 test("filled blocks become the Hub's upload placeholder on their own line; empty ones go", () => {
   const body = normalizeImageBlocks(draft, "tutorial").markdown;
   const out = hubBodyFromBlocks(body, {
-    "img-1": { mediaId: 42, caption: "Setting the gutter." },
-    "img-3": { mediaId: 43, caption: "Third caption." },
+    "img-1": { mediaId: 42 },
+    "img-3": { mediaId: 43 },
   });
-  assert.ok(out.includes("\n![media:42]()\n\n_Setting the gutter._"));
-  assert.ok(out.includes("![media:43]()\n\n_Third caption._"));
+  assert.ok(out.includes("\n![media:42]()\n"));
+  assert.ok(out.includes("![media:43]()"));
+  assert.ok(!out.includes("_Setting the gutter._"), "no caption under the image");
   assert.ok(!out.includes("```image"));
   assert.ok(!out.includes("Second caption."));
 });
@@ -254,10 +255,11 @@ test("an image's credit becomes a References entry with its link", async () => {
 test("the Publish preview shows filled blocks as pictures and lifts the summary", async () => {
   const { previewWithBlocks } = await import("./image-blocks");
   const md = "# Title\n\n_A short summary line here._\n\nIntro.\n\n```image\nid: img-1\nrole: step\npurpose: p\ncaption: Cap one.\nalt: Alt one\nsuggested_route: draw\nsearch_hint: x\n```\n\n```image\nid: img-2\nrole: step\npurpose: p\ncaption: c\nalt: a\nsuggested_route: draw\nsearch_hint: y\n```\n\nEnd.";
-  const out = previewWithBlocks(md, { "img-1": { url: "/api/images/1", alt: "", caption: "" } });
+  const out = previewWithBlocks(md, { "img-1": { url: "/api/images/1", alt: "" } });
   assert.equal(out.summary, "A short summary line here.");
   assert.ok(out.markdown.startsWith("# Title\n"));
-  assert.ok(out.markdown.includes("![Alt one](/api/images/1)\n\n_Cap one._"));
+  assert.ok(out.markdown.includes("![Alt one](/api/images/1)"));
+  assert.ok(!out.markdown.includes("Cap one."), "no caption under the image");
   assert.ok(!out.markdown.includes("```image"));
   assert.ok(!out.markdown.includes("A short summary line here."));
 });

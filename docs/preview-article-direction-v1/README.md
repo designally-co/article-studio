@@ -21,7 +21,7 @@ Headless comparison of one subject (current vs proposed), on its own test databa
 | Migration 0031 | Applied to the local test databases only (schema 32 of 32). |
 | Editor cards render in place; Upload fills a block; Remove; routes refused by type | Pass (screenshots below). |
 | Case study refuses Generate and Draw, for body and cover; Find with no subject picture leaves the block for a person | Pass. |
-| Publish into a **local Hub** (the Hub repo's `main`, Payload 3.86, SQLite) | Body images arrive as real upload nodes in the right places, with alt text and captions; the summary line becomes the Hub summary; the public page shows them (screenshot 10). |
+| Publish into a **local Hub** (the Hub repo's `main`, Payload 3.86, SQLite) | Body images arrive as real upload nodes in the right places, with alt text; the summary line becomes the Hub summary; the public page shows them (screenshot 10). |
 | Empty blocks hold the article as a Hub draft | Pass: "Saved as a Hub draft, not published: img-1 is empty. img-2 is empty." |
 
 Screenshots: `06-draft-two-steps-cover-and-blocks.png` (Draft with cover and two filled blocks), `05-case-study-find-and-forbidden-generate.png`, `08-tutorial-published-before.png` (Publish preview), `09-case-study-held-as-draft.png`, `10-hub-public-article.png` (local Hub page). The pictures in them are **local test uploads**, not Find, Generate or Draw results.
@@ -43,15 +43,14 @@ To finish: give the environment `ANTHROPIC_API_KEY`, `FAL_KEY` and (recommended)
 - `![media:42]()` **alone on its line** becomes an upload node, and the Hub's article page (fetched at depth 1) renders it with the default converter. Studio uploads each picture with the existing `/api/media/from-url` (or `/api/media` for a local file) and writes this placeholder.
 - A standard `![alt](url)` arrives as **literal text** in a paragraph. Never send it.
 - A placeholder **inside a sentence replaces the whole paragraph**. Studio always puts it on its own line.
-- The caption is sent as an italic paragraph under the image.
+- Images carry no caption (build session, 2026-10-15), so nothing is sent under them.
 
 Optional, for a matching `designally-knowledge-hub` branch (not made here):
 
-1. **Real figure captions.** Today the caption is a separate italic paragraph. For `<figure>` + `<figcaption>`: add a `caption` field to the Upload feature for `media` (`UploadFeature({ collections: { media: { fields: [{ name: 'caption', type: 'text' }] } } })`), a JSX converter that renders figure and figcaption, and a markdown transformer that reads a caption (for example `![media:42](caption text)`, which today's transformer refuses because it requires empty brackets).
-2. **Credit on the media doc.** `/api/media/from-url` accepts only `url`, `alt`, `filename`; the Media collection already has a `credit` field. Accept `credit` there. (Studio already credits every online image in the article's References.)
-3. **At a glance bullets** render without bullet markers on the Hub page (screenshot 10). Check the list style in the article body.
-4. **Thai translation** rebuilds the Thai body from the English Lexical body via Markdown. Upload nodes export as `![media:<id>]()` at depth 0, so they should survive; not tested (Thai is hidden).
-5. `MEDIA_FETCH_HOSTS` must name the R2 domain, as it already does for covers.
+1. **Credit on the media doc.** `/api/media/from-url` accepts only `url`, `alt`, `filename`; the Media collection already has a `credit` field. Accept `credit` there. (Studio already credits every online image in the article's References.)
+2. **At a glance bullets** render without bullet markers on the Hub page (screenshot 10). Check the list style in the article body.
+3. **Thai translation** rebuilds the Thai body from the English Lexical body via Markdown. Upload nodes export as `![media:<id>]()` at depth 0, so they should survive; not tested (Thai is hidden).
+4. `MEDIA_FETCH_HOSTS` must name the R2 domain, as it already does for covers.
 
 ## Open questions
 

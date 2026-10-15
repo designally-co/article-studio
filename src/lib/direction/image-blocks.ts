@@ -7,7 +7,6 @@
  *     id: img-1
  *     role: step
  *     purpose: Show where the grid's gutter is set in the layout panel.
- *     caption: Setting a 24px gutter before placing any type.
  *     alt: A layout panel with columns set to twelve and gutter to 24px.
  *     suggested_route: draw
  *     search_hint: Figma layout grid panel
@@ -232,7 +231,8 @@ export function takeSummaryLine(markdown: string): { summary: string | null; mar
 /**
  * The body as the Hub should receive it: each filled block becomes the Hub's
  * own upload placeholder, `![media:<id>]()`, on a line of its own, with its
- * caption as an italic line under it; an empty block is removed.
+ * an empty block is removed. No caption goes under it (build session,
+ * 2026-10-15: "no need to add caption under the image").
  *
  * WHY THE PLACEHOLDER AND NOT `![alt](url)`. Measured against Payload 3.86's
  * `convertMarkdownToLexical` (the Hub's converter): a standard Markdown image
@@ -242,14 +242,13 @@ export function takeSummaryLine(markdown: string): { summary: string | null; mar
  */
 export function hubBodyFromBlocks(
   markdown: string,
-  placed: Record<string, { mediaId: number; caption: string }>,
+  placed: Record<string, { mediaId: number }>,
 ): string {
   return replaceImageBlocks(markdown, (block) => {
     const image = placed[block.id];
     if (!image) return null;
     // The credit is not here: it goes in the article's References (see imageReference).
-    const caption = image.caption.trim().replace(/[_*]/g, "");
-    return caption ? `![media:${image.mediaId}]()\n\n_${caption}_` : `![media:${image.mediaId}]()`;
+    return `![media:${image.mediaId}]()`;
   });
 }
 
@@ -269,19 +268,18 @@ export function imageReference(image: { credit?: string | null; sourceUrl?: stri
 
 /**
  * The draft as the Publish preview should show it: each filled block as its
- * picture with the caption under it, empty blocks gone (as at publish), and the
+ * picture (no caption, as at publish), empty blocks gone, and the
  * one-line summary lifted out to be the dek. The title stays where it was.
  */
 export function previewWithBlocks(
   markdown: string,
-  filled: Record<string, { url: string; alt: string; caption: string }>,
+  filled: Record<string, { url: string; alt: string }>,
 ): { markdown: string; summary: string | null } {
   const withImages = replaceImageBlocks(markdown, (block) => {
     const image = filled[block.id];
     if (!image) return null;
     const alt = (image.alt || block.alt).replace(/[[\]]/g, "");
-    const caption = (image.caption || block.caption).replace(/[_*]/g, "").trim();
-    return caption ? `![${alt}](${image.url})\n\n_${caption}_` : `![${alt}](${image.url})`;
+    return `![${alt}](${image.url})`;
   });
   const title = /^\s*#\s+.+\r?\n/.exec(withImages);
   const head = title ? title[0] : "";

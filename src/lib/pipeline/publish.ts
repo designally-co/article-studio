@@ -225,7 +225,7 @@ export async function publishToHubCore(
   const bodyImageWarnings: string[] = [];
   if (labels) {
     const filled = blockImagesOf(loaded.images);
-    const placed: Record<string, { mediaId: number; caption: string }> = {};
+    const placed: Record<string, { mediaId: number }> = {};
     for (const [blockId, image] of Object.entries(filled)) {
       const row = loaded.images.find((entry) => entry.id === image.id);
       if (!row) continue;
@@ -241,7 +241,7 @@ export async function publishToHubCore(
           if (!resolved) throw new Error("the file could not be read");
           mediaId = await uploadImageToHub({ data: resolved.data, filename, mimeType: resolved.mimeType, alt });
         }
-        placed[blockId] = { mediaId, caption: image.caption };
+        placed[blockId] = { mediaId };
         /* CREDITED IN REFERENCES, where the article credits everything else.
            Only a picture that actually went up is credited. */
         const reference = imageReference(image);
