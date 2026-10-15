@@ -250,3 +250,14 @@ test("an image's credit becomes a References entry with its link", async () => {
   });
   assert.equal(imageReference({ credit: "Ours", sourceUrl: "" }), null);
 });
+
+test("the Publish preview shows filled blocks as pictures and lifts the summary", async () => {
+  const { previewWithBlocks } = await import("./image-blocks");
+  const md = "# Title\n\n_A short summary line here._\n\nIntro.\n\n```image\nid: img-1\nrole: step\npurpose: p\ncaption: Cap one.\nalt: Alt one\nsuggested_route: draw\nsearch_hint: x\n```\n\n```image\nid: img-2\nrole: step\npurpose: p\ncaption: c\nalt: a\nsuggested_route: draw\nsearch_hint: y\n```\n\nEnd.";
+  const out = previewWithBlocks(md, { "img-1": { url: "/api/images/1", alt: "", caption: "" } });
+  assert.equal(out.summary, "A short summary line here.");
+  assert.ok(out.markdown.startsWith("# Title\n"));
+  assert.ok(out.markdown.includes("![Alt one](/api/images/1)\n\n_Cap one._"));
+  assert.ok(!out.markdown.includes("```image"));
+  assert.ok(!out.markdown.includes("A short summary line here."));
+});

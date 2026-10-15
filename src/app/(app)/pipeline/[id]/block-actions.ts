@@ -6,7 +6,10 @@ import {
   clearBlockImagesCore,
   drawBlockImageCore,
   findBlockImageCore,
+  findCoverCore,
   generateBlockImageCore,
+  generateCoverCore,
+  uploadCoverCore,
   uploadBlockImageCore,
 } from "@/lib/pipeline/image-blocks";
 import type { BlockFillResult } from "@/lib/pipeline/views";
@@ -69,6 +72,21 @@ export async function uploadBlockImageAction(
         sourceUrl: String(formData.get("sourceUrl") ?? ""),
       },
     );
+  });
+}
+
+/** The cover, from the draft stage (proposed direction: Draft and Publish only). */
+export async function fillCoverAction(projectId: string, route: "find" | "generate"): Promise<Answer<BlockFillResult>> {
+  return answer(() => (route === "find" ? findCoverCore(projectId) : generateCoverCore(projectId)));
+}
+
+export async function uploadCoverAction(projectId: string, formData: FormData): Promise<Answer<BlockFillResult>> {
+  return answer(async () => {
+    const file = formData.get("file");
+    if (!(file instanceof File) || file.size === 0) throw new Error("Choose an image to upload.");
+    if (file.size > MAX_UPLOAD_BYTES) throw new Error("Images must be 8 MB or smaller.");
+    if (!UPLOAD_TYPES.has(file.type)) throw new Error("Use a PNG, JPEG, or WebP image.");
+    return uploadCoverCore(projectId, { data: Buffer.from(await file.arrayBuffer()), name: file.name });
   });
 }
 

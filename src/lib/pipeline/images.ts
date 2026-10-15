@@ -252,7 +252,9 @@ export async function findReferenceImagesCore(
         : // Said first when it applies: the cited pages are where the best
           // picture would have come from, and an editor can fix that by citing
           // the project's own page rather than a site's front door.
-          `${citedPages(article).length > 0 ? "None of the pages this article cites had a picture to offer. " : ""}${searchNote(search)}`,
+          `${citedPages(article).length > 0 ? "None of the pages this article cites had a picture to offer. " : ""}${
+            useLibrary ? searchNote(search) : "This type's cover comes only from the pages the article cites, never a photo library."
+          }`,
   };
 }
 

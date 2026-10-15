@@ -10,7 +10,8 @@ import { SHEET_CLEARANCE, StageAction, StageSheet } from "./stage-mobile";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { deleteRevisionAction, goToFinalizeAction, saveDraftContentAction } from "../actions";
 import { clearBlockAction } from "../block-actions";
-import { ImageBlockCard } from "./image-block-card";
+import { CoverCard, ImageBlockCard } from "./image-block-card";
+import type { BlockRoute } from "@/lib/direction/image-routing";
 import { parseImageBlockBody, removeImageBlock } from "@/lib/direction/image-blocks";
 import type { LabelType } from "@/lib/direction/labels";
 import type { BlockImageView } from "@/lib/pipeline/views";
@@ -39,6 +40,8 @@ export function DraftsStage({
   anthropicReady,
   labelsType,
   blockImages: initialBlockImages = {},
+  cover: initialCover = null,
+  coverRoutes = [],
 }: {
   projectId: string;
   drafts: { id: string; variationNo: number; contentMd: string; isSelected: boolean }[];
@@ -48,6 +51,9 @@ export function DraftsStage({
   /** PREVIEW ONLY: the article's type when it has labels (proposed direction); its image blocks render as cards. */
   labelsType?: LabelType;
   blockImages?: Record<string, BlockImageView>;
+  /** PREVIEW ONLY: the cover is chosen here too; the steps are Draft and Publish. */
+  cover?: BlockImageView | null;
+  coverRoutes?: BlockRoute[];
 }) {
   const existing = drafts.find((draft) => draft.isSelected) ?? drafts[0];
   const [draft, setDraft] = useState<DraftView>({
@@ -68,6 +74,9 @@ export function DraftsStage({
   const editSnapshotSaved = useRef(false);
   const editBase = useRef(existing?.contentMd ?? "");
   const [blockImages, setBlockImages] = useState(initialBlockImages);
+  const [cover, setCover] = useState(initialCover);
+  const twoSteps = Boolean(labelsType);
+  const continueLabel = twoSteps ? "Continue to publish" : "Continue to images";
 
   /* PREVIEW ONLY: removing a block takes it out of the draft (saved at once,
      with the version before kept) and drops the picture that filled it. */
@@ -297,6 +306,7 @@ export function DraftsStage({
   function continueToImages() {
     const formData = new FormData();
     formData.set("projectId", projectId);
+    if (twoSteps) formData.set("view", "complete");
     startTransition(() => goToFinalizeAction(formData));
   }
 
@@ -500,6 +510,9 @@ export function DraftsStage({
                  utilities setting the same side resolve by emission order, not
                  by the order they are written in. */
               <div className="min-h-[38rem] max-w-[74ch] px-5 pb-16 pt-5 sm:px-8 sm:pb-24 sm:pt-8">
+                {twoSteps && !draft.streaming && draft.contentMd && (
+                  <CoverCard projectId={projectId} routes={coverRoutes} image={cover} locked={dirty} onImage={setCover} />
+                )}
                 {draft.contentMd ? <Markdown renderImageBlock={draft.streaming ? undefined : renderImageBlock}>{draft.contentMd}</Markdown> : <p className="py-20 text-center text-sm text-ink-2">Preparing the article…</p>}
                 {(draft.streaming || revising) && <span className="ml-0.5 inline-block h-4 w-1.5 animate-pulse rounded-full bg-accent align-text-bottom motion-reduce:animate-none" />}
               </div>
@@ -552,7 +565,7 @@ export function DraftsStage({
                   stage's WORK rather than repeating the button underneath it,
                   which already says where the button goes. */}
               <h3 className="font-heading text-[length:var(--text-h3)] font-medium tracking-tight text-ink">
-                Add a cover image
+                {twoSteps ? "Ready to publish" : "Add a cover image"}
               </h3>
               {/* Says why the button is unavailable rather than just being grey:
                   a disabled control with no explanation reads as broken when you
@@ -579,7 +592,7 @@ export function DraftsStage({
                 disabled={cannotContinue}
                 className="cs-cta mt-4 w-full"
               >
-                Continue to images
+                {continueLabel}
               </button>
             </div>
           </section>
@@ -606,7 +619,7 @@ export function DraftsStage({
         {/* The rail's two panels, for a screen with no room for a rail. The
             action carries no label, so its name lives in `aria-label` and its
             tooltip; the sheet is titled the same as the panel it replaces. */}
-        <StageAction label="Continue to images" onClick={continueToImages} disabled={cannotContinue}>
+        <StageAction label={continueLabel} onClick={continueToImages} disabled={cannotContinue}>
           <ArrowRight aria-hidden className="size-5" />
         </StageAction>
         <StageSheet title="Revise" subtitle="One focused change at a time." flush>

@@ -266,3 +266,25 @@ export function imageReference(image: { credit?: string | null; sourceUrl?: stri
   const label = /^courtesy\b/i.test(credit) ? `Image ${credit[0].toLowerCase()}${credit.slice(1)}` : `Image: ${credit}`;
   return { label, url };
 }
+
+/**
+ * The draft as the Publish preview should show it: each filled block as its
+ * picture with the caption under it, empty blocks gone (as at publish), and the
+ * one-line summary lifted out to be the dek. The title stays where it was.
+ */
+export function previewWithBlocks(
+  markdown: string,
+  filled: Record<string, { url: string; alt: string; caption: string }>,
+): { markdown: string; summary: string | null } {
+  const withImages = replaceImageBlocks(markdown, (block) => {
+    const image = filled[block.id];
+    if (!image) return null;
+    const alt = (image.alt || block.alt).replace(/[[\]]/g, "");
+    const caption = (image.caption || block.caption).replace(/[_*]/g, "").trim();
+    return caption ? `![${alt}](${image.url})\n\n_${caption}_` : `![${alt}](${image.url})`;
+  });
+  const title = /^\s*#\s+.+\r?\n/.exec(withImages);
+  const head = title ? title[0] : "";
+  const taken = takeSummaryLine(withImages.slice(head.length).replace(/^\s+/, ""));
+  return { markdown: taken.summary ? `${head}\n${taken.markdown}` : withImages, summary: taken.summary };
+}

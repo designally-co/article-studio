@@ -6,7 +6,7 @@ import type { ImageBlock } from "@/lib/direction/image-blocks";
 import { BLOCK_ROUTES, allowedRoutes, effectiveRoute, type BlockRoute } from "@/lib/direction/image-routing";
 import type { LabelType } from "@/lib/direction/labels";
 import type { BlockImageView } from "@/lib/pipeline/views";
-import { fillBlockAction, uploadBlockImageAction } from "../block-actions";
+import { fillBlockAction, fillCoverAction, uploadBlockImageAction, uploadCoverAction } from "../block-actions";
 
 /**
  * PREVIEW ONLY: one in-body image block, drawn in place in the draft
@@ -177,6 +177,112 @@ export function ImageBlockCard({
             const file = event.target.files?.[0];
             event.target.value = "";
             if (file) upload(file);
+          }}
+        />
+      </div>
+      {note && (
+        <p role="status" className="border-t border-line px-4 py-2.5 text-xs text-ink-2">
+          {note}
+        </p>
+      )}
+    </figure>
+  );
+}
+
+/**
+ * PREVIEW ONLY: the cover, at the top of the draft (proposed direction: the
+ * steps are Draft and Publish, so the cover is chosen here too). Find,
+ * Generate and Upload, as the article's type allows.
+ */
+export function CoverCard({
+  projectId,
+  routes,
+  image,
+  locked,
+  onImage,
+}: {
+  projectId: string;
+  /** The cover routes this type allows. */
+  routes: BlockRoute[];
+  image: BlockImageView | null;
+  locked: boolean;
+  onImage: (image: BlockImageView) => void;
+}) {
+  const [busy, setBusy] = useState<BlockRoute | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
+  const fileInput = useRef<HTMLInputElement>(null);
+  const COVER_ROUTES: BlockRoute[] = ["find", "generate", "upload"];
+
+  function run(route: "find" | "generate" | "upload", file?: File) {
+    setBusy(route);
+    setNote(null);
+    startTransition(async () => {
+      let result;
+      if (route === "upload" && file) {
+        const data = new FormData();
+        data.set("file", file);
+        result = await uploadCoverAction(projectId, data);
+      } else {
+        result = await fillCoverAction(projectId, route as "find" | "generate");
+      }
+      setBusy(null);
+      if (!result.ok) return setNote(result.message);
+      if (result.value.image) onImage(result.value.image);
+      setNote(result.value.note ?? null);
+    });
+  }
+
+  return (
+    <figure className="not-prose mb-8 overflow-hidden rounded-2xl border border-line bg-sunken" aria-label="Cover image" data-cover-card="">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-4 py-2.5">
+        <span className="text-xs font-semibold uppercase tracking-wide text-ink-2">Cover</span>
+        <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${image ? "bg-accent-soft text-accent-press" : "bg-warn-soft text-ink"}`}>
+          {image ? `Chosen: ${image.route?.replace("cover-", "") ?? image.provider}` : "No cover yet"}
+        </span>
+      </div>
+      {image ? (
+        // eslint-disable-next-line @next/next/no-img-element -- a stored image served by the app's own route
+        <img src={image.url} alt={image.alt || "The article's cover"} className="block h-auto w-full bg-white" />
+      ) : (
+        <div className="grid min-h-28 place-items-center px-6 py-6 text-center text-sm text-ink-2">
+          <p>The cover goes to the Hub with the article.</p>
+        </div>
+      )}
+      {image?.credit && (
+        <figcaption className="px-4 pt-3 text-xs text-ink-2">
+          {image.credit} (credited in References)
+        </figcaption>
+      )}
+      <div className="flex flex-wrap items-center gap-1.5 px-4 py-3" role="group" aria-label="Choose the cover">
+        {COVER_ROUTES.map((route) => {
+          const Icon = ROUTE_ICON[route];
+          const allowed = routes.includes(route);
+          return (
+            <button
+              key={route}
+              type="button"
+              disabled={!allowed || pending || locked}
+              title={allowed ? undefined : `This type does not use ${ROUTE_LABEL[route]} for its cover.`}
+              onClick={() => (route === "upload" ? fileInput.current?.click() : run(route as "find" | "generate"))}
+              className="inline-flex items-center gap-1.5 rounded-full bg-surface px-3 py-2 text-xs font-medium text-ink-2 transition-colors hover:bg-deep focus-visible:outline-none focus-visible:shadow-[var(--shadow-focus)] disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <Icon aria-hidden className="size-3.5" />
+              {busy === route ? `${ROUTE_LABEL[route]}…` : ROUTE_LABEL[route]}
+            </button>
+          );
+        })}
+        <input
+          ref={fileInput}
+          type="file"
+          accept="image/png,image/jpeg,image/webp"
+          className="sr-only"
+          tabIndex={-1}
+          aria-hidden
+          onChange={(event) => {
+            const file = event.target.files?.[0];
+            event.target.value = "";
+            if (file) run("upload", file);
           }}
         />
       </div>

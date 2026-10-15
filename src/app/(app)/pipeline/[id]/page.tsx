@@ -7,7 +7,8 @@ import { deDash } from "@/lib/text";
 import { isAnthropicConfigured } from "@/lib/anthropic";
 import { isHubConfigured } from "@/lib/hub";
 import { imageGenerationOptions } from "@/lib/image/registry";
-import { blockImagesOf } from "@/lib/pipeline/image-blocks";
+import { blockImageView, blockImagesOf, coverRoutesFor } from "@/lib/pipeline/image-blocks";
+import { previewWithBlocks } from "@/lib/direction/image-blocks";
 import { LENGTH_BY_TYPE } from "@/lib/direction/labels";
 import { Stepper } from "@/components/stepper";
 import { TopBlur } from "@/components/page-bar";
@@ -89,12 +90,20 @@ export default async function PipelinePage({
   const coverAspectRatio = parseAspectRatio(
     cover?.aspectRatio ?? imageAspectRatio,
   );
-  const finalizeView: "images" | "complete" =
-    viewParam === "images" || viewParam === "complete"
+  const labels = loaded.project.inputs.labels;
+  const finalizeView: "images" | "complete" = labels
+    ? "complete" // PREVIEW ONLY: Draft and Publish; the cover is chosen in Draft.
+    : viewParam === "images" || viewParam === "complete"
       ? viewParam
       : published
         ? "complete"
         : "images";
+
+  /* PREVIEW ONLY: a labelled article's Publish preview shows its image blocks
+     as the pictures that fill them and its one-line summary as the dek, which
+     is what publishing sends. */
+  const selectedMd = (loaded.drafts.find((d) => d.isSelected) ?? loaded.drafts[0])?.contentMd ?? "";
+  const directionPreview = labels ? previewWithBlocks(selectedMd, blockImagesOf(loaded.images)) : null;
 
   return (
     /* The 48px menu strip is a SIBLING of this page, not part of it, so
@@ -136,6 +145,7 @@ export default async function PipelinePage({
             current={current}
             reached={reached}
             finalizeView={finalizeView}
+            twoSteps={Boolean(labels)}
           />
         </div>
       )}
@@ -168,8 +178,10 @@ export default async function PipelinePage({
                 : loaded.articleRules.length
             }
             anthropicReady={anthropicReady}
-            labelsType={loaded.project.inputs.labels?.type}
+            labelsType={labels?.type}
             blockImages={blockImagesOf(loaded.images)}
+            cover={labels && cover ? blockImageView(cover) : null}
+            coverRoutes={labels ? coverRoutesFor(labels) : []}
           />
         )}
         {current === 6 && (
@@ -182,15 +194,18 @@ export default async function PipelinePage({
                 ?.id ?? ""
             }
             longForm={loaded.articleRules.longForm}
-            draftMd={
-              (loaded.drafts.find((d) => d.isSelected) ?? loaded.drafts[0])
-                ?.contentMd ?? ""
-            }
+            draftMd={directionPreview?.markdown ?? selectedMd}
             coverImageUrl={cover ? `/api/images/${cover.id}` : null}
             coverAspectRatio={coverAspectRatio}
             coverImageId={cover?.id ?? null}
             coverCredits={loaded.project.inputs.coverCredits ?? {}}
-            initialDek={loaded.project.inputs.publishDek ? deDash(loaded.project.inputs.publishDek) : null}
+            initialDek={
+              directionPreview?.summary
+                ? deDash(directionPreview.summary)
+                : loaded.project.inputs.publishDek
+                  ? deDash(loaded.project.inputs.publishDek)
+                  : null
+            }
             published={published}
             images={loaded.images.filter((img) => img.position === null).map((img) => ({
               id: img.id,

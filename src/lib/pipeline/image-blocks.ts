@@ -10,6 +10,11 @@ import { deleteStoredImage, saveGeneratedImage } from "@/lib/image/storage";
 import { loadSharp } from "@/lib/image/sharp";
 import { findArticleSourceImages } from "@/lib/image/article-sources";
 import { findRelatedReferences } from "@/lib/image/reference-search";
+import { findReferenceImagesCore, generateImagesCore } from "./images";
+import { coverFromReferenceCore } from "./sourced-cover";
+import { generateImagePromptCore } from "./image-prompt";
+import { IMAGE_ASPECT_RATIOS, type ImageAspectRatio } from "@/lib/image/providers";
+import { projects } from "@/db/schema";
 import type { ReferenceCandidate } from "@/lib/image/reference-sources";
 import { imageSystemPromptFor } from "@/prompts/system";
 import { blockImagePromptTask, drawFigureTask } from "@/prompts/direction";
@@ -20,6 +25,7 @@ import {
   RIGHTS_HOLD_AS_DRAFT,
   TYPE_IMAGE_POLICY,
   effectiveRoute,
+  isCoverSourceAllowed,
   isRouteAllowed,
   rightsForOrigin,
   type BlockRoute,
@@ -493,4 +499,126 @@ export function holdAsDraftReasons(loaded: LoadedProject, inputs: ProjectInputs 
     reasons.push(`The cover's rights are ${cover.rights.replace("_", " ")}.`);
   }
   return reasons;
+}
+
+/* --------------------------------------------------------------- Cover --- */
+
+/*
+ * THE COVER IS PART OF THE DRAFT STAGE in the proposed direction (build
+ * session, 2026-10-15: "the cover image must be at draft stage too", "just
+ * draft and publish steps"). The same work the Image stage and the autopilot
+ * do, by the type's cover route: a case study's cover comes from its cited
+ * pages only and is never generated; commentary's never from a cited page.
+ */
+
+/** Which cover routes this article's type allows. Upload always. */
+export function coverRoutesFor(labels: ArticleLabels): BlockRoute[] {
+  const routes: BlockRoute[] = [];
+  if (isCoverSourceAllowed(labels.type, "cited_pages") || isCoverSourceAllowed(labels.type, "library")) routes.push("find");
+  if (isCoverSourceAllowed(labels.type, "generate")) routes.push("generate");
+  routes.push("upload");
+  return routes;
+}
+
+async function labelsOf(projectId: string): Promise<ArticleLabels> {
+  const loaded = await loadProject(projectId);
+  const labels = loaded?.project.inputs.labels;
+  if (!labels) throw new Error("This article has no labels.");
+  return labels;
+}
+
+async function coverView(imageId: string): Promise<BlockImageView> {
+  const db = await getDb();
+  const [row] = await db.select().from(images).where(eq(images.id, imageId)).limit(1);
+  if (!row) throw new Error("The cover was not saved.");
+  return blockImageView(row);
+}
+
+async function setCover(projectId: string, imageId: string) {
+  const db = await getDb();
+  const [row] = await db.select({ inputs: projects.inputs }).from(projects).where(eq(projects.id, projectId)).limit(1);
+  await db
+    .update(projects)
+    .set({ inputs: { ...(row?.inputs ?? {}), coverImageId: imageId }, updatedAt: new Date() })
+    .where(eq(projects.id, projectId));
+}
+
+export async function findCoverCore(projectId: string): Promise<BlockFillResult> {
+  const labels = await labelsOf(projectId);
+  if (!coverRoutesFor(labels).includes("find")) throw new Error(`A ${labels.type.replace("_", " ")} cover is not found online.`);
+  const drafted = await generateImagePromptCore(projectId, { variationCount: 1 }).catch(() => null);
+  const found = await findReferenceImagesCore(projectId, { query: drafted?.brief.photoQuery ?? "", limit: 2, oneOfEach: true });
+  const subject = found.references.find((item) => found.subjectIds?.includes(item.id));
+  // A case study's cover must show the project itself: a merely related picture will not do.
+  const candidates =
+    labels.type === "case_study"
+      ? [subject]
+      : [subject ?? found.references.find((item) => item.origin === "article_source"), found.references.find((item) => item.origin === "open_license")];
+  const tried: string[] = [];
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    tried.push(candidate.sourceUrl ?? candidate.name);
+    try {
+      const { image } = await coverFromReferenceCore(projectId, candidate.id);
+      return { image: await coverView(image.id), log: { route: "find", tried, judged: 0, rejected: 0 } };
+    } catch {
+      // Too small or unreadable: try the next.
+    }
+  }
+  return {
+    image: null,
+    note: `${found.note ?? "No picture good enough for the cover was found."}${
+      labels.type === "case_study" ? " A case study's cover must be the project itself: upload it." : ""
+    }`,
+    log: { route: "find", tried, judged: 0, rejected: 0 },
+  };
+}
+
+export async function generateCoverCore(projectId: string): Promise<BlockFillResult> {
+  const loaded = await loadProject(projectId);
+  const labels = loaded?.project.inputs.labels;
+  if (!loaded || !labels) throw new Error("This article has no labels.");
+  if (!coverRoutesFor(labels).includes("generate")) throw new Error("A case study never uses a generated cover.");
+  const options = await imageGenerationOptions();
+  const option = options.find((entry) => !entry.capabilities.referenceImagesRequired);
+  if (!option) throw new Error("No image generator is configured (add a Fal.ai key in Settings).");
+  const drafted = await generateImagePromptCore(projectId, { variationCount: 1 });
+  const wanted = IMAGE_ASPECT_RATIOS.find((ratio) => ratio === loaded.project.inputs.imageAspectRatio);
+  const aspectRatio: ImageAspectRatio =
+    wanted && option.capabilities.aspectRatios.includes(wanted) ? wanted : "16:9";
+  const run = await generateImagesCore(projectId, {
+    prompt: drafted.prompt,
+    optionId: option.optionId,
+    aspectRatio,
+    variationCount: 1,
+    referenceIds: [],
+    variantPrompts: drafted.variants.map((variant) => variant.prompt),
+  });
+  const first = run.images[0];
+  if (!first) throw new Error(run.failureReason ?? "No cover was generated.");
+  await setCover(projectId, first.id);
+  return { image: await coverView(first.id), log: { route: "generate", tried: [option.label], judged: 0, rejected: 0 } };
+}
+
+export async function uploadCoverCore(projectId: string, file: { data: Buffer; name: string }): Promise<BlockFillResult> {
+  await labelsOf(projectId);
+  const stored = await saveGeneratedImage({ data: file.data, mimeType: "image/png", ext: "png" });
+  const db = await getDb();
+  const [row] = await db
+    .insert(images)
+    .values({
+      projectId,
+      provider: "upload",
+      model: "upload",
+      prompt: `Uploaded: ${file.name}`.slice(0, 300),
+      aspectRatio: ratioOf(stored.width, stored.height),
+      width: stored.width,
+      height: stored.height,
+      storagePath: stored.storagePath,
+      route: "cover-upload",
+      rights: "own",
+    })
+    .returning();
+  await setCover(projectId, row.id);
+  return { image: blockImageView(row), log: { route: "upload", tried: [], judged: 0, rejected: 0 } };
 }

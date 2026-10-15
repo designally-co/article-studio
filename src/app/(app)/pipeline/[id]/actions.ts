@@ -73,7 +73,9 @@ export async function goToFinalizeAction(formData: FormData) {
      image stage entirely, but only for articles that had already gone out. That
      default is right for arriving at stage 6 from the Library, and wrong here:
      this button names its destination, so it states it. */
-  redirect(`/pipeline/${projectId}?stage=6&view=images`);
+  // PREVIEW ONLY: an article in the proposed direction has no Image step; its cover was chosen in Draft.
+  const view = formData.get("view") === "complete" ? "complete" : "images";
+  redirect(`/pipeline/${projectId}?stage=6&view=${view}`);
 }
 
 /** Session-checked wrapper. The work lives in @/lib/pipeline/image-prompt. */
