@@ -11,6 +11,7 @@ import { ConfirmDialog } from "@/components/confirm-dialog";
 import { deleteRevisionAction, goToFinalizeAction, saveDraftContentAction } from "../actions";
 import { clearBlockAction } from "../block-actions";
 import { CoverCard, ImageBlockCard } from "./image-block-card";
+import { ArticleEditor } from "./article-editor";
 import type { BlockRoute } from "@/lib/direction/image-routing";
 import { parseImageBlockBody, removeImageBlock } from "@/lib/direction/image-blocks";
 import type { LabelType } from "@/lib/direction/labels";
@@ -471,7 +472,7 @@ export function DraftsStage({
                   preview that is switched on, which is the opposite of what it
                   does. The icon shows where pressing takes you; the title says
                   it in words for anyone hovering. */}
-              <button
+              {!twoSteps && <button
                 type="button"
                 onClick={toggleEditing}
                 disabled={!draft.contentMd || draft.streaming || revising}
@@ -487,7 +488,7 @@ export function DraftsStage({
                 title={editing ? "Preview the article" : "Edit the Markdown"}
               >
                 {editing ? <Eye aria-hidden className="size-4" /> : <Pencil aria-hidden className="size-4" />}
-              </button>
+              </button>}
             </header>
 
             {draft.error && <p className="mb-2 mx-5 rounded-2xl bg-danger-soft px-4 py-3 text-sm text-danger sm:mx-8" role="alert">{draft.error}</p>}
@@ -513,7 +514,19 @@ export function DraftsStage({
                 {twoSteps && !draft.streaming && draft.contentMd && (
                   <CoverCard projectId={projectId} routes={coverRoutes} image={cover} locked={dirty} onImage={setCover} />
                 )}
-                {draft.contentMd ? <Markdown renderImageBlock={draft.streaming ? undefined : renderImageBlock}>{draft.contentMd}</Markdown> : <p className="py-20 text-center text-sm text-ink-2">Preparing the article…</p>}
+                {/* PREVIEW ONLY: the new direction's draft is always editable, in
+                    place, with its cards where they sit (build session,
+                    2026-10-15). While it is being written it streams as text. */}
+                {twoSteps && draft.contentMd && !draft.streaming && !revising ? (
+                  <ArticleEditor
+                    markdown={draft.contentMd}
+                    renderImageBlock={renderImageBlock}
+                    onChange={(next) => {
+                      setDraft((current) => ({ ...current, contentMd: next }));
+                      setDirty(true);
+                    }}
+                  />
+                ) : draft.contentMd ? <Markdown renderImageBlock={draft.streaming ? undefined : renderImageBlock}>{draft.contentMd}</Markdown> : <p className="py-20 text-center text-sm text-ink-2">Preparing the article…</p>}
                 {(draft.streaming || revising) && <span className="ml-0.5 inline-block h-4 w-1.5 animate-pulse rounded-full bg-accent align-text-bottom motion-reduce:animate-none" />}
               </div>
             )}

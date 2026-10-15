@@ -9,6 +9,7 @@ import {
   findCoverCore,
   generateBlockImageCore,
   generateCoverCore,
+  removeCoverCore,
   uploadCoverCore,
   uploadBlockImageCore,
 } from "@/lib/pipeline/image-blocks";
@@ -90,7 +91,12 @@ export async function uploadCoverAction(projectId: string, formData: FormData): 
   });
 }
 
-/** The picture goes; the editor removes the block from the draft in the same click. */
+/** Remove the cover and leave the slot empty. */
+export async function removeCoverAction(projectId: string): Promise<Answer<null>> {
+  return answer(() => removeCoverCore(projectId));
+}
+
+/** The picture goes and the block stays, empty, ready to be filled again. */
 export async function clearBlockAction(projectId: string, blockId: string): Promise<Answer<true>> {
   return answer(async () => {
     await clearBlockImagesCore(projectId, blockId);

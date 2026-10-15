@@ -269,10 +269,11 @@ Draw it as a clean editorial figure: ${
 
 Rules:
 - Output ONE complete <svg> element and nothing else: no code fences, no prose.
-- width="1200" height="800" viewBox="0 0 1200 800". A plain light background rectangle first.
+- width="1200" height="800" viewBox="0 0 1200 800". First element: <rect x="0" y="0" width="1200" height="800" fill="..."/> in one plain light colour, covering the whole canvas. Centre the drawing on the canvas.
 - Two to four flat colours plus a dark text colour. No gradients, no shadows, no filters, no images, no external links, no scripts, no <foreignObject>.
 - Text: font-family="Inter, DejaVu Sans, Arial, sans-serif", font-size 28 or larger, at most 8 words per label, at most 10 labels. Spell every word correctly; use only facts from the article.
-- Keep everything inside the canvas with at least 48px of margin. No title at the top: the caption carries it.
+- Keep everything inside the canvas with at least 48px of margin.
+- No title and no caption or summary sentence anywhere in the figure: the caption is printed under it already. Text is only short labels on the parts.
 - Never use the em dash.`;
 }
 

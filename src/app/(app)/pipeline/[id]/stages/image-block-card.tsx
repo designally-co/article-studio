@@ -6,7 +6,14 @@ import type { ImageBlock } from "@/lib/direction/image-blocks";
 import { BLOCK_ROUTES, allowedRoutes, effectiveRoute, type BlockRoute } from "@/lib/direction/image-routing";
 import type { LabelType } from "@/lib/direction/labels";
 import type { BlockImageView } from "@/lib/pipeline/views";
-import { fillBlockAction, fillCoverAction, uploadBlockImageAction, uploadCoverAction } from "../block-actions";
+import {
+  clearBlockAction,
+  fillBlockAction,
+  fillCoverAction,
+  removeCoverAction,
+  uploadBlockImageAction,
+  uploadCoverAction,
+} from "../block-actions";
 
 /**
  * PREVIEW ONLY: one in-body image block, drawn in place in the draft
@@ -79,6 +86,16 @@ export function ImageBlockCard({
       setBusy(null);
       if (!result.ok) setNote(result.message);
       else if (result.value.image) onImage(block.id, result.value.image);
+    });
+  }
+
+  function clearImage() {
+    setNote(null);
+    startTransition(async () => {
+      const result = await clearBlockAction(projectId, block.id);
+      if (!result.ok) return setNote(result.message);
+      onImage(block.id, null);
+      setNote("Image removed. Add a new one with the buttons above.");
     });
   }
 
@@ -160,11 +177,14 @@ export function ImageBlockCard({
         <button
           type="button"
           disabled={pending}
-          onClick={() => onRemove(block.id)}
+          /* A FILLED BLOCK LOSES ITS PICTURE AND KEEPS ITS PLACE, so a new one can
+             be added there. Only an empty block's Remove takes the slot out of
+             the article (build session, 2026-10-15). */
+          onClick={() => (image ? clearImage() : onRemove(block.id))}
           className="inline-flex items-center gap-1.5 rounded-full bg-surface px-3 py-2 text-xs font-medium text-ink-2 transition-colors hover:text-danger-ink focus-visible:outline-none focus-visible:shadow-[var(--shadow-focus)] disabled:opacity-40"
         >
           <Trash2 aria-hidden className="size-3.5" />
-          Remove
+          {image ? "Remove image" : "Remove slot"}
         </button>
         <input
           ref={fileInput}
@@ -206,13 +226,29 @@ export function CoverCard({
   routes: BlockRoute[];
   image: BlockImageView | null;
   locked: boolean;
-  onImage: (image: BlockImageView) => void;
+  onImage: (image: BlockImageView | null) => void;
 }) {
-  const [busy, setBusy] = useState<BlockRoute | null>(null);
+  const [busy, setBusy] = useState<BlockRoute | "remove" | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const fileInput = useRef<HTMLInputElement>(null);
   const COVER_ROUTES: BlockRoute[] = ["find", "generate", "upload"];
+  /* ONCE THERE IS A COVER, every button says it replaces it, and Remove takes
+     it away: an editor looking at a cover they do not want must see a way out. */
+  const label = (route: BlockRoute) =>
+    !image ? ROUTE_LABEL[route] : route === "find" ? "Find another" : route === "generate" ? "Generate new" : "Upload new";
+
+  function remove() {
+    setBusy("remove");
+    setNote(null);
+    startTransition(async () => {
+      const result = await removeCoverAction(projectId);
+      setBusy(null);
+      if (!result.ok) return setNote(result.message);
+      onImage(null);
+      setNote("Removed. Add a new cover with Find, Generate or Upload.");
+    });
+  }
 
   function run(route: "find" | "generate" | "upload", file?: File) {
     setBusy(route);
@@ -268,10 +304,21 @@ export function CoverCard({
               className="inline-flex items-center gap-1.5 rounded-full bg-surface px-3 py-2 text-xs font-medium text-ink-2 transition-colors hover:bg-deep focus-visible:outline-none focus-visible:shadow-[var(--shadow-focus)] disabled:cursor-not-allowed disabled:opacity-40"
             >
               <Icon aria-hidden className="size-3.5" />
-              {busy === route ? `${ROUTE_LABEL[route]}…` : ROUTE_LABEL[route]}
+              {busy === route ? `${label(route)}…` : label(route)}
             </button>
           );
         })}
+        {image && (
+          <button
+            type="button"
+            disabled={pending || locked}
+            onClick={remove}
+            className="inline-flex items-center gap-1.5 rounded-full bg-surface px-3 py-2 text-xs font-medium text-ink-2 transition-colors hover:text-danger-ink focus-visible:outline-none focus-visible:shadow-[var(--shadow-focus)] disabled:opacity-40"
+          >
+            <Trash2 aria-hidden className="size-3.5" />
+            {busy === "remove" ? "Removing…" : "Remove"}
+          </button>
+        )}
         <input
           ref={fileInput}
           type="file"

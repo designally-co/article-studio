@@ -1,7 +1,7 @@
 import "server-only";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { getDb } from "@/db";
-import { images, type ProjectInputs } from "@/db/schema";
+import { imageReferences, images, type ProjectInputs } from "@/db/schema";
 import { loadProject, type LoadedProject } from "@/lib/projects";
 import { getModels, runText } from "@/lib/anthropic";
 import { logImageUsage } from "@/lib/cost";
@@ -388,7 +388,21 @@ export async function drawBlockImageCore(projectId: string, blockId: string): Pr
   const svg = sanitizeSvg(text);
   const sharp = await loadSharp();
   // Rendered at twice the drawing's size, then stored at the delivery width.
-  const png = await sharp(Buffer.from(svg), { density: 144 }).flatten({ background: "#ffffff" }).png().toBuffer();
+  const rendered = await sharp(Buffer.from(svg), { density: 144 }).flatten({ background: "#ffffff" }).png().toBuffer();
+  /* CROPPED TO THE DRAWING, THEN AN EVEN MARGIN. A model's background does not
+     always cover its canvas (a white strip down one side), and its content is
+     not always centred. Trimming the plain edge and adding the same margin all
+     round in the figure's own background colour fixes both. */
+  const png = await (async () => {
+    try {
+      const trimmed = await sharp(rendered).trim({ threshold: 12 }).png().toBuffer();
+      const { data } = await sharp(trimmed).extract({ left: 0, top: 0, width: 1, height: 1 }).raw().toBuffer({ resolveWithObject: true });
+      const background = { r: data[0], g: data[1], b: data[2] };
+      return await sharp(trimmed).extend({ top: 64, bottom: 64, left: 64, right: 64, background }).png().toBuffer();
+    } catch {
+      return rendered;
+    }
+  })();
   const image = await saveBlockImage(ctx, {
     data: png,
     route: "draw",
@@ -544,16 +558,36 @@ async function setCover(projectId: string, imageId: string) {
 }
 
 export async function findCoverCore(projectId: string): Promise<BlockFillResult> {
-  const labels = await labelsOf(projectId);
+  const loaded = await loadProject(projectId);
+  const labels = loaded?.project.inputs.labels;
+  if (!loaded || !labels) throw new Error("This article has no labels.");
   if (!coverRoutesFor(labels).includes("find")) throw new Error(`A ${labels.type.replace("_", " ")} cover is not found online.`);
+
+  /* ROOM FOR ANOTHER SEARCH. An article keeps at most a few found pictures,
+     and every Find adds up to two. When it is nearly full, the ones no image
+     was made from are cleared, so "Find another" keeps working. */
+  const db = await getDb();
+  const usedReferences = new Set(loaded.images.flatMap((image) => image.referenceIds));
+  if (loaded.imageReferences.length >= 6) {
+    for (const reference of loaded.imageReferences) {
+      if (usedReferences.has(reference.id)) continue;
+      await db.delete(imageReferences).where(eq(imageReferences.id, reference.id));
+      await deleteStoredImage(reference.storagePath).catch(() => false);
+    }
+  }
+  const before = new Set((await loadProject(projectId))?.imageReferences.map((reference) => reference.id) ?? []);
+
   const drafted = await generateImagePromptCore(projectId, { variationCount: 1 }).catch(() => null);
   const found = await findReferenceImagesCore(projectId, { query: drafted?.brief.photoQuery ?? "", limit: 2, oneOfEach: true });
-  const subject = found.references.find((item) => found.subjectIds?.includes(item.id));
+  /* ONLY WHAT THIS SEARCH FOUND. The list also holds earlier searches'
+     pictures, and taking the first of those chose the same cover again. */
+  const fresh = found.references.filter((item) => !before.has(item.id));
+  const subject = fresh.find((item) => found.subjectIds?.includes(item.id));
   // A case study's cover must show the project itself: a merely related picture will not do.
   const candidates =
     labels.type === "case_study"
       ? [subject]
-      : [subject ?? found.references.find((item) => item.origin === "article_source"), found.references.find((item) => item.origin === "open_license")];
+      : [subject ?? fresh.find((item) => item.origin === "article_source"), fresh.find((item) => item.origin === "open_license")];
   const tried: string[] = [];
   for (const candidate of candidates) {
     if (!candidate) continue;
@@ -567,11 +601,35 @@ export async function findCoverCore(projectId: string): Promise<BlockFillResult>
   }
   return {
     image: null,
-    note: `${found.note ?? "No picture good enough for the cover was found."}${
+    note: `${found.note ?? "No other picture good enough for the cover was found. Try again, generate one, or upload one."}${
       labels.type === "case_study" ? " A case study's cover must be the project itself: upload it." : ""
     }`,
     log: { route: "find", tried, judged: 0, rejected: 0 },
   };
+}
+
+/**
+ * Remove the cover and leave the slot empty, ready for a new one (build
+ * session, 2026-10-15: "when removed, leave the empty slot to add it again").
+ * Every earlier cover of the article goes too: otherwise the newest of them
+ * would quietly become the cover again.
+ */
+export async function removeCoverCore(projectId: string): Promise<null> {
+  const loaded = await loadProject(projectId);
+  if (!loaded?.project.inputs.labels) throw new Error("This article has no labels.");
+  const db = await getDb();
+  for (const cover of loaded.images.filter((image) => image.position === null)) {
+    await db.delete(images).where(eq(images.id, cover.id));
+    await deleteStoredImage(cover.storagePath).catch(() => false);
+  }
+  await db
+    .update(projects)
+    .set({
+      inputs: sql`coalesce(${projects.inputs}, '{}'::jsonb) - 'coverImageId' - 'coverCredits'`,
+      updatedAt: new Date(),
+    })
+    .where(eq(projects.id, projectId));
+  return null;
 }
 
 export async function generateCoverCore(projectId: string): Promise<BlockFillResult> {

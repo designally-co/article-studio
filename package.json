@@ -15,6 +15,11 @@
     "@anthropic-ai/sdk": "^0.111.0",
     "@aws-sdk/client-s3": "^3.1130.0",
     "@electric-sql/pglite": "^0.5.4",
+    "@tiptap/core": "3.31.0",
+    "@tiptap/markdown": "3.31.0",
+    "@tiptap/pm": "3.31.0",
+    "@tiptap/react": "3.31.0",
+    "@tiptap/starter-kit": "3.31.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "drizzle-orm": "^0.45.2",
@@ -47,5 +52,9 @@
     "tailwindcss": "^4",
     "tsx": "^4.23.1",
     "typescript": "^5"
+  },
+  "overrides": {
+    "@tiptap/extension-bubble-menu": "3.31.0",
+    "@tiptap/extension-floating-menu": "3.31.0"
   }
 }
