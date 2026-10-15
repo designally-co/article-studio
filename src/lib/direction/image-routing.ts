@@ -262,12 +262,14 @@ export type ImageFit = {
 };
 
 /**
- * The honest rights state of a picture by where it came from. A cited page's
- * picture belongs to its publisher: permission is pending until a person says
- * otherwise. A person's upload is unknown until they say whose it is.
+ * The rights state of a picture by where it came from. Designally has the
+ * rights to use online images, credited in the article's References (stated in
+ * the build session, 2026-10-15): a cited page's picture and a library photo
+ * are both "licensed". The editor is not asked (same session): a person's own
+ * upload is "own". "unknown" and "permission_pending" stay in the vocabulary
+ * so an image from anywhere else is still held back, but nothing sets them now.
  */
 export function rightsForOrigin(origin: "upload" | "article_source" | "open_license"): Rights {
-  if (origin === "open_license") return "licensed";
-  if (origin === "article_source") return "permission_pending";
-  return "unknown";
+  if (origin === "open_license" || origin === "article_source") return "licensed";
+  return "own";
 }

@@ -3,25 +3,20 @@
 import { useRef, useState, useTransition } from "react";
 import { Brush, ImagePlus, Search, Sparkles, Trash2 } from "lucide-react";
 import type { ImageBlock } from "@/lib/direction/image-blocks";
-import {
-  BLOCK_ROUTES,
-  RIGHTS,
-  RIGHTS_HOLD_AS_DRAFT,
-  allowedRoutes,
-  effectiveRoute,
-  type BlockRoute,
-  type Rights,
-} from "@/lib/direction/image-routing";
+import { BLOCK_ROUTES, allowedRoutes, effectiveRoute, type BlockRoute } from "@/lib/direction/image-routing";
 import type { LabelType } from "@/lib/direction/labels";
 import type { BlockImageView } from "@/lib/pipeline/views";
-import { fillBlockAction, setBlockImageRightsAction, uploadBlockImageAction } from "../block-actions";
+import { fillBlockAction, uploadBlockImageAction } from "../block-actions";
 
 /**
  * PREVIEW ONLY: one in-body image block, drawn in place in the draft
  * (proposed article direction).
  *
  * It says what the picture is for, shows the picture once there is one, and
- * offers the four ways to fill it with the type's suggested route first. A
+ * offers the four ways to fill it with the type's suggested route first. The
+ * editor is never asked about rights: they are recorded automatically (own for
+ * generated, drawn and uploaded pictures; licensed for online images, which are
+ * credited in References). A
  * route the article's type forbids is shown but cannot be pressed, and says
  * why: the editor should see that a case study never generates, not wonder
  * where the button went.
@@ -29,12 +24,6 @@ import { fillBlockAction, setBlockImageRightsAction, uploadBlockImageAction } fr
 
 const ROUTE_LABEL: Record<BlockRoute, string> = { find: "Find", generate: "Generate", draw: "Draw", upload: "Upload" };
 const ROUTE_ICON = { find: Search, generate: Sparkles, draw: Brush, upload: ImagePlus } as const;
-const RIGHTS_LABEL: Record<Rights, string> = {
-  own: "Own",
-  licensed: "Licensed",
-  permission_pending: "Permission pending",
-  unknown: "Unknown",
-};
 
 export function ImageBlockCard({
   projectId,
@@ -58,14 +47,10 @@ export function ImageBlockCard({
   const suggested = effectiveRoute(type, block.suggestedRoute);
   const [busy, setBusy] = useState<BlockRoute | null>(null);
   const [note, setNote] = useState<string | null>(null);
-  const [uploadRights, setUploadRights] = useState<Rights>("unknown");
   const [pending, startTransition] = useTransition();
   const fileInput = useRef<HTMLInputElement>(null);
 
-  const heldBack = image ? RIGHTS_HOLD_AS_DRAFT.includes(image.rights as Rights) : false;
-  const status = !image
-    ? "Empty: needs a picture"
-    : `Filled by ${ROUTE_LABEL[image.route ?? "upload"]} · rights ${RIGHTS_LABEL[(image.rights as Rights) ?? "unknown"].toLowerCase()}`;
+  const status = !image ? "Empty: needs a picture" : `Filled by ${ROUTE_LABEL[image.route ?? "upload"]}`;
 
   function fill(route: "find" | "generate" | "draw") {
     setBusy(route);
@@ -89,21 +74,11 @@ export function ImageBlockCard({
     setNote(null);
     const data = new FormData();
     data.set("file", file);
-    data.set("rights", uploadRights);
     startTransition(async () => {
       const result = await uploadBlockImageAction(projectId, block.id, data);
       setBusy(null);
       if (!result.ok) setNote(result.message);
       else if (result.value.image) onImage(block.id, result.value.image);
-    });
-  }
-
-  function changeRights(rights: Rights) {
-    if (!image) return;
-    startTransition(async () => {
-      const result = await setBlockImageRightsAction(projectId, image.id, rights);
-      if (!result.ok) setNote(result.message);
-      else onImage(block.id, result.value);
     });
   }
 
@@ -124,11 +99,10 @@ export function ImageBlockCard({
         </span>
         <span
           className={`rounded-full px-2.5 py-1 text-xs font-medium ${
-            !image || heldBack ? "bg-warn-soft text-ink" : "bg-accent-soft text-accent-press"
+            !image ? "bg-warn-soft text-ink" : "bg-accent-soft text-accent-press"
           }`}
         >
           {status}
-          {heldBack ? " · holds the article as a draft" : ""}
         </span>
       </div>
 
@@ -205,23 +179,6 @@ export function ImageBlockCard({
             if (file) upload(file);
           }}
         />
-        <label className="ml-auto inline-flex items-center gap-1.5 text-xs text-ink-2">
-          Rights
-          <select
-            className="cs-select h-8 rounded-full py-0 text-xs"
-            value={image ? (image.rights as Rights) : uploadRights}
-            disabled={pending}
-            onChange={(event) =>
-              image ? changeRights(event.target.value as Rights) : setUploadRights(event.target.value as Rights)
-            }
-          >
-            {RIGHTS.map((rights) => (
-              <option key={rights} value={rights}>
-                {RIGHTS_LABEL[rights]}
-              </option>
-            ))}
-          </select>
-        </label>
       </div>
       {note && (
         <p role="status" className="border-t border-line px-4 py-2.5 text-xs text-ink-2">

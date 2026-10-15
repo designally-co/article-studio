@@ -232,7 +232,7 @@ export function takeSummaryLine(markdown: string): { summary: string | null; mar
 /**
  * The body as the Hub should receive it: each filled block becomes the Hub's
  * own upload placeholder, `![media:<id>]()`, on a line of its own, with its
- * caption (and credit) as an italic line under it; an empty block is removed.
+ * caption as an italic line under it; an empty block is removed.
  *
  * WHY THE PLACEHOLDER AND NOT `![alt](url)`. Measured against Payload 3.86's
  * `convertMarkdownToLexical` (the Hub's converter): a standard Markdown image
@@ -242,12 +242,27 @@ export function takeSummaryLine(markdown: string): { summary: string | null; mar
  */
 export function hubBodyFromBlocks(
   markdown: string,
-  placed: Record<string, { mediaId: number; caption: string; credit?: string | null }>,
+  placed: Record<string, { mediaId: number; caption: string }>,
 ): string {
   return replaceImageBlocks(markdown, (block) => {
     const image = placed[block.id];
     if (!image) return null;
-    const caption = [image.caption.trim(), image.credit?.trim()].filter(Boolean).join(" · ").replace(/[_*]/g, "");
+    // The credit is not here: it goes in the article's References (see imageReference).
+    const caption = image.caption.trim().replace(/[_*]/g, "");
     return caption ? `![media:${image.mediaId}]()\n\n_${caption}_` : `![media:${image.mediaId}]()`;
   });
+}
+
+/**
+ * The References entry that credits one image: "Image courtesy of Pentagram"
+ * linked to the page it came from. Online images are credited in References,
+ * where the article credits everything else (build session, 2026-10-15).
+ * Null without a link: the Hub needs one on every reference.
+ */
+export function imageReference(image: { credit?: string | null; sourceUrl?: string | null }): { label: string; url: string } | null {
+  const credit = image.credit?.trim();
+  const url = image.sourceUrl?.trim();
+  if (!credit || !url) return null;
+  const label = /^courtesy\b/i.test(credit) ? `Image ${credit[0].toLowerCase()}${credit.slice(1)}` : `Image: ${credit}`;
+  return { label, url };
 }

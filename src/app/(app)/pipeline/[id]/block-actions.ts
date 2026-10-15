@@ -7,10 +7,9 @@ import {
   drawBlockImageCore,
   findBlockImageCore,
   generateBlockImageCore,
-  setBlockImageRightsCore,
   uploadBlockImageCore,
 } from "@/lib/pipeline/image-blocks";
-import type { BlockFillResult, BlockImageView } from "@/lib/pipeline/views";
+import type { BlockFillResult } from "@/lib/pipeline/views";
 
 /*
  * PREVIEW ONLY: the buttons on an in-body image block (proposed article
@@ -66,21 +65,11 @@ export async function uploadBlockImageAction(
       blockId,
       { data: Buffer.from(await file.arrayBuffer()), name: file.name },
       {
-        rights: String(formData.get("rights") ?? "unknown"),
         credit: String(formData.get("credit") ?? ""),
         sourceUrl: String(formData.get("sourceUrl") ?? ""),
       },
     );
   });
-}
-
-export async function setBlockImageRightsAction(
-  projectId: string,
-  imageId: string,
-  rights: string,
-  credit?: string,
-): Promise<Answer<BlockImageView>> {
-  return answer(() => setBlockImageRightsCore(projectId, imageId, { rights, credit }));
 }
 
 /** The picture goes; the editor removes the block from the draft in the same click. */

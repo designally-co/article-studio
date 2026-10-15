@@ -17,7 +17,6 @@ import { finishImagePrompt } from "@/lib/image/visual-brief";
 import { parseImageBlocks, slotOf, type LocatedImageBlock } from "@/lib/direction/image-blocks";
 import {
   AUTO_FILL_ROUTES,
-  RIGHTS,
   RIGHTS_HOLD_AS_DRAFT,
   TYPE_IMAGE_POLICY,
   effectiveRoute,
@@ -262,7 +261,9 @@ export async function findBlockImageCore(projectId: string, blockId: string): Pr
     console.info(`[direction] image ${JSON.stringify({ projectId, block: blockId, route: "find", empty: true, ...stats })}`);
     return {
       image: null,
-      note: `Nothing found in ${tried.join(", then ")} shows ${ctx.block.searchHint || "this subject"} well enough${
+      note: `Nothing found in ${tried.join(", then ")} shows ${
+        hintPage(ctx.block.searchHint) ? "what this block needs" : ctx.block.searchHint || "this subject"
+      } well enough${
         stats.rejected ? ` (${stats.rejected} picture${stats.rejected === 1 ? "" : "s"} turned down)` : ""
       }. This block needs a person: upload the picture.`,
       log,
@@ -399,11 +400,12 @@ export async function uploadBlockImageCore(
   projectId: string,
   blockId: string,
   file: { data: Buffer; name: string },
-  meta: { rights?: string; credit?: string; sourceUrl?: string },
+  meta: { credit?: string; sourceUrl?: string },
 ): Promise<BlockFillResult> {
   const ctx = await loadBlock(projectId, blockId);
   assertRoute(ctx, "upload");
-  const rights = (RIGHTS as readonly string[]).includes(meta.rights ?? "") ? (meta.rights as Rights) : "unknown";
+  // The editor is not asked about rights (build session, 2026-10-15): an upload is recorded as their own.
+  const rights: Rights = "own";
   const image = await saveBlockImage(ctx, {
     data: file.data,
     route: "upload",
@@ -418,25 +420,6 @@ export async function uploadBlockImageCore(
 }
 
 /* ------------------------------------------------------- Rights, remove --- */
-
-export async function setBlockImageRightsCore(
-  projectId: string,
-  imageId: string,
-  update: { rights: string; credit?: string },
-): Promise<BlockImageView> {
-  if (!(RIGHTS as readonly string[]).includes(update.rights)) throw new Error("Unknown rights status.");
-  const db = await getDb();
-  const [row] = await db
-    .update(images)
-    .set({
-      rights: update.rights as Rights,
-      ...(update.credit !== undefined ? { credit: update.credit.trim() || null } : {}),
-    })
-    .where(and(eq(images.id, imageId), eq(images.projectId, projectId)))
-    .returning();
-  if (!row) throw new Error("That image is no longer on this article.");
-  return blockImageView(row);
-}
 
 /** Remove the picture filling a block (the block itself is removed from the draft by the editor). */
 export async function clearBlockImagesCore(projectId: string, blockId: string): Promise<void> {

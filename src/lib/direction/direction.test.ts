@@ -168,9 +168,9 @@ test("routes follow the type", () => {
 });
 
 test("rights by origin", () => {
-  assert.equal(rightsForOrigin("article_source"), "permission_pending");
+  assert.equal(rightsForOrigin("article_source"), "licensed");
   assert.equal(rightsForOrigin("open_license"), "licensed");
-  assert.equal(rightsForOrigin("upload"), "unknown");
+  assert.equal(rightsForOrigin("upload"), "own");
 });
 
 test("removing a block leaves the rest", () => {
@@ -189,11 +189,64 @@ test("the summary line is lifted out of the body", () => {
 test("filled blocks become the Hub's upload placeholder on their own line; empty ones go", () => {
   const body = normalizeImageBlocks(draft, "tutorial").markdown;
   const out = hubBodyFromBlocks(body, {
-    "img-1": { mediaId: 42, caption: "Setting the gutter.", credit: null },
-    "img-3": { mediaId: 43, caption: "Third caption.", credit: "Courtesy of example.com" },
+    "img-1": { mediaId: 42, caption: "Setting the gutter." },
+    "img-3": { mediaId: 43, caption: "Third caption." },
   });
   assert.ok(out.includes("\n![media:42]()\n\n_Setting the gutter._"));
-  assert.ok(out.includes("![media:43]()\n\n_Third caption. · Courtesy of example.com_"));
+  assert.ok(out.includes("![media:43]()\n\n_Third caption._"));
   assert.ok(!out.includes("```image"));
   assert.ok(!out.includes("Second caption."));
+});
+
+test("draft checks measure the proposed shape", async () => {
+  const { checkDraft } = await import("./draft-checks");
+  const good = `# Title
+
+_What you will learn, in one line._
+
+Intro with [Pentagram's case study](https://www.pentagram.com/work/x).
+
+## At a glance
+
+- A 12-column grid divides into halves, thirds and quarters.
+- Gutters set first keep spacing stable.
+
+## Body
+
+Text.
+
+## Key takeaway
+
+Before your next layout, open a blank frame and set twelve columns and a 24px gutter first. Place one heading and one paragraph on it, and check that every later element snaps to the same columns before you add colour or images to the page this week.
+
+## Sources
+
+- [A](https://example.com/a)
+`;
+  const check = checkDraft(good, "tutorial");
+  assert.equal(check.hasSummaryLine, true);
+  assert.equal(check.atAGlance.ok, true);
+  assert.equal(check.keyTakeaway.ok, true, JSON.stringify(check.keyTakeaway));
+  assert.equal(check.inlineSourceLinks, 1);
+  assert.equal(check.orderOk, true);
+  assert.equal(check.lengthOk, false);
+
+  const bad = checkDraft(`# T\n\n## At a glance\n\n- This article explains grids.\n- This article covers gutters.\n\n## Key takeaway\n\nGrids matter.\n`);
+  assert.equal(bad.atAGlance.ok, false);
+  assert.equal(bad.atAGlance.describesArticle, 2);
+  assert.equal(bad.keyTakeaway.ok, false);
+  assert.equal(bad.hasSummaryLine, false);
+});
+
+test("an image's credit becomes a References entry with its link", async () => {
+  const { imageReference } = await import("./image-blocks");
+  assert.deepEqual(imageReference({ credit: "Courtesy of pentagram.com", sourceUrl: "https://www.pentagram.com/work/x" }), {
+    label: "Image courtesy of pentagram.com",
+    url: "https://www.pentagram.com/work/x",
+  });
+  assert.deepEqual(imageReference({ credit: "Photo by Ana on Unsplash", sourceUrl: "https://unsplash.com/photos/x" }), {
+    label: "Image: Photo by Ana on Unsplash",
+    url: "https://unsplash.com/photos/x",
+  });
+  assert.equal(imageReference({ credit: "Ours", sourceUrl: "" }), null);
 });

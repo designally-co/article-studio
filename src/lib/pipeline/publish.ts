@@ -18,7 +18,7 @@ import { deDash } from "@/lib/text";
 import { getModels, runText } from "@/lib/anthropic";
 import type { PublishToHubResult } from "./views";
 import { blockImagesOf, holdAsDraftReasons } from "./image-blocks";
-import { hubBodyFromBlocks, takeSummaryLine } from "@/lib/direction/image-blocks";
+import { hubBodyFromBlocks, imageReference, takeSummaryLine } from "@/lib/direction/image-blocks";
 
 export type { PublishToHubResult } from "./views";
 
@@ -225,7 +225,7 @@ export async function publishToHubCore(
   const bodyImageWarnings: string[] = [];
   if (labels) {
     const filled = blockImagesOf(loaded.images);
-    const placed: Record<string, { mediaId: number; caption: string; credit?: string | null }> = {};
+    const placed: Record<string, { mediaId: number; caption: string }> = {};
     for (const [blockId, image] of Object.entries(filled)) {
       const row = loaded.images.find((entry) => entry.id === image.id);
       if (!row) continue;
@@ -241,7 +241,15 @@ export async function publishToHubCore(
           if (!resolved) throw new Error("the file could not be read");
           mediaId = await uploadImageToHub({ data: resolved.data, filename, mimeType: resolved.mimeType, alt });
         }
-        placed[blockId] = { mediaId, caption: image.caption, credit: image.credit };
+        placed[blockId] = { mediaId, caption: image.caption };
+        /* CREDITED IN REFERENCES, where the article credits everything else.
+           Only a picture that actually went up is credited. */
+        const reference = imageReference(image);
+        if (reference) {
+          if (!references.some((entry) => entry.url === reference.url && entry.label === reference.label)) references.push(reference);
+        } else if (image.route === "find" || image.credit) {
+          bodyImageWarnings.push(`${blockId}: its credit has no link, so it is not in References. Add the source link on the image.`);
+        }
       } catch (cause) {
         bodyImageWarnings.push(`${blockId}: ${(cause instanceof Error ? cause.message : String(cause)).slice(0, 160)}`);
       }
