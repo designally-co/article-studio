@@ -1,13 +1,15 @@
 "use client";
 
-import { useId, useRef, useState, useTransition, type ReactNode } from "react";
-import { Brush, ImagePlus, LoaderCircle, Search, Sparkles, Trash2 } from "lucide-react";
+import { useId, useMemo, useRef, useState, type ReactNode } from "react";
+import { Brush, ImagePlus, LoaderCircle, Search, Sparkles, Trash2, WandSparkles, X } from "lucide-react";
 import type { ImageBlock } from "@/lib/direction/image-blocks";
 import { BLOCK_ROUTES, effectiveRoute, type BlockRoute } from "@/lib/direction/image-routing";
 import type { LabelType } from "@/lib/direction/labels";
 import type { BlockImageView } from "@/lib/pipeline/views";
 import {
   clearBlockAction,
+  draftBlockPromptAction,
+  draftCoverPromptAction,
   fillBlockAction,
   fillCoverAction,
   removeCoverAction,
@@ -52,14 +54,61 @@ type BoxAction = {
   onClick: () => void;
 };
 
+type Drafted = { ok: true; value: string } | { ok: false; message: string };
+
+/** A name for one fill, so Cancel can stop that fill and no other. */
+function newTicket(): string {
+  return typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+/**
+ * The fill under way in one box. Cancel forgets it (and tells the server), so
+ * its late answer is dropped; a new fill replaces it the same way.
+ */
+function useFillTicket(projectId: string) {
+  const current = useRef<string | null>(null);
+  return useMemo(
+    () => ({
+      start() {
+        const ticket = newTicket();
+        current.current = ticket;
+        return ticket;
+      },
+      /** True when this is still the fill the box is waiting for. */
+      finish(ticket: string) {
+        if (current.current !== ticket) return false;
+        current.current = null;
+        return true;
+      },
+      cancel() {
+        if (current.current) sendCancel(projectId, current.current);
+        current.current = null;
+      },
+    }),
+    [projectId],
+  );
+}
+
+/* A plain request, not a server action: a page's server actions run one at a
+   time, so a Cancel action would wait for the fill it is meant to stop. */
+function sendCancel(projectId: string, ticket: string) {
+  void fetch(`/api/pipeline/${projectId}/cancel-fill`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ ticket }),
+  }).catch(() => undefined);
+}
+
 /**
  * THE ONE IMAGE BOX, for the cover and for every slot in the article (build
  * session, 2026-10-15: "simplify the image box"). No header, no status tag,
  * no dividers, no visible name (it read as a button; it stays as the box's
- * accessible name). With a picture: Remove on its top-right, and the ways to
- * replace it under it. Empty:
- * only the ways to fill it, centred in the box. A message appears only when
- * something needs the editor's attention.
+ * accessible name). Everything sits on the picture: the actions bottom-left,
+ * Remove top-right, Generate's and Draw's prompt box at the bottom, and,
+ * while something runs, what it is and Cancel in the middle. A message
+ * appears under it only when something needs the editor's attention.
  */
 function ImageBox({
   name,
@@ -69,11 +118,11 @@ function ImageBox({
   actions,
   disabled,
   activity,
+  onCancel,
   onRemove,
-  removeLabel,
   removeBusy,
+  panel,
   children,
-  prompt,
   note,
   onFile,
 }: {
@@ -83,14 +132,15 @@ function ImageBox({
   alt: string;
   actions: BoxAction[];
   disabled: boolean;
-  /** Shown in place of the buttons while the first, automatic fill works on it. */
   /** What is being done to the picture right now, animated in the box; null when nothing is. */
   activity: Activity;
+  /** Stops the find, generate or draw under way; absent when nothing can be stopped. */
+  onCancel?: () => void;
   onRemove?: () => void;
-  removeLabel: string;
   removeBusy: boolean;
+  /** Generate's or Draw's prompt box, in place of the actions while it is open. */
+  panel?: ReactNode;
   children?: ReactNode;
-  prompt?: ReactNode;
   note: string | null;
   /** Upload: the box opens its own file picker and hands the file here. */
   onFile: (file: File) => void;
@@ -124,52 +174,53 @@ function ImageBox({
       })}
     </div>
   );
+  /* "do not say remove slot, remove image, just say remove" (build session,
+     2026-10-15): one word, whatever it takes away. */
   const removeButton = onRemove && (
     <button type="button" disabled={disabled} onClick={onRemove} className={`${ON_IMAGE} transition-colors hover:text-danger-ink disabled:opacity-60`}>
       <Trash2 aria-hidden className="size-3.5" />
-      {removeBusy ? "Removing…" : removeLabel}
+      {removeBusy ? "Removing…" : "Remove"}
     </button>
   );
-  const working = activity === "auto";
-  const workingLabel = (
-    <p className={ON_IMAGE}>
-      <LoaderCircle aria-hidden className="size-3.5 animate-spin motion-reduce:animate-none" />
-      {ACTIVITY_LABEL.auto}
-    </p>
-  );
   /* WHILE AN ACTION RUNS, THE PICTURE SAYS WHICH (build session, 2026-10-15):
-     the illustration acts it out, over the old picture if there is one. */
+     the illustration acts it out, over the old picture if there is one, with
+     Cancel under it ("finding image must have cancel button"). */
   const acting = activity && (
-    <div className="pointer-events-none absolute inset-0 grid place-items-center bg-sunken/85 backdrop-blur-[2px]">
+    <div className="absolute inset-0 grid place-items-center bg-sunken/85 backdrop-blur-[2px]">
       <div className="flex flex-col items-center gap-2">
         <EmptyPicture activity={activity} />
         <p className="-mt-4 text-xs font-medium text-ink-2" role="status">
           {ACTIVITY_LABEL[activity]}
         </p>
+        {onCancel && (
+          <button type="button" onClick={onCancel} className={`${ON_IMAGE} mt-1 transition-colors hover:bg-surface focus-visible:outline-none focus-visible:shadow-[var(--shadow-focus)]`}>
+            <X aria-hidden className="size-3.5" />
+            Cancel
+          </button>
+        )}
       </div>
     </div>
   );
-  const below = Boolean(prompt || children || note);
+  const below = Boolean(children || note);
 
   return (
     <figure className="not-prose my-8" aria-label={name} {...dataAttrs}>
       <div className="relative overflow-hidden rounded-2xl bg-sunken">
         {image ? (
           // eslint-disable-next-line @next/next/no-img-element -- a stored image served by the app's own route
-          <img src={image.url} alt={alt} className="block h-auto w-full bg-white" />
+          <img src={image.url} alt={alt} className={`block h-auto w-full bg-white ${panel ? "min-h-56" : ""} object-cover`} />
         ) : (
           // The empty picture: the same layer, waiting to be filled, with a quiet mark of a picture.
-          <div className="grid aspect-[16/9] w-full place-items-center">
-            <EmptyPicture activity={null} />
+          <div className={`grid w-full place-items-center ${panel ? "min-h-56 aspect-[16/9]" : "aspect-[16/9]"}`}>
+            {!panel && <EmptyPicture activity={null} />}
           </div>
         )}
         {acting}
-        {removeButton && <span className="absolute right-3 top-3">{removeButton}</span>}
-        <div className="absolute bottom-3 left-3 right-3">{working ? workingLabel : buttons}</div>
+        {!activity && removeButton && <span className="absolute right-3 top-3">{removeButton}</span>}
+        {!activity && <div className="absolute bottom-3 left-3 right-3">{panel ?? buttons}</div>}
       </div>
       {below && (
         <div className="mt-3 space-y-2 text-sm text-ink-2">
-          {prompt}
           {children}
           {note && (
             <p role="status" className="text-xs">
@@ -224,49 +275,51 @@ export function ImageBlockCard({
 }) {
   const suggested = effectiveRoute(type, block.suggestedRoute);
   const [busy, setBusy] = useState<BlockRoute | "remove" | null>(null);
-  const [promptOpen, setPromptOpen] = useState(false);
+  const [panel, setPanel] = useState<"generate" | "draw" | null>(null);
   const [note, setNote] = useState<string | null>(null);
-  const [pending, startTransition] = useTransition();
+  const ticket = useFillTicket(projectId);
   const slot = block.id.replace(/^img-/, "");
 
-  function fill(route: "find" | "generate" | "draw", prompt?: string) {
+  async function fill(route: "find" | "generate" | "draw", prompt?: string) {
+    const mine = ticket.start();
     setBusy(route);
     setNote(null);
-    setPromptOpen(false);
-    startTransition(async () => {
-      const result = await fillBlockAction(projectId, block.id, route, prompt);
-      setBusy(null);
-      if (!result.ok) return setNote(result.message);
-      if (result.value.image) onImage(block.id, result.value.image);
-      setNote(result.value.image ? null : (result.value.note ?? null));
-    });
+    setPanel(null);
+    const result = await fillBlockAction(projectId, block.id, route, prompt, mine);
+    // Cancelled, or another fill started since: this answer is no longer wanted.
+    if (!ticket.finish(mine)) return;
+    setBusy(null);
+    if (!result.ok) return setNote(result.message);
+    if (result.value.image) onImage(block.id, result.value.image);
+    setNote(result.value.image ? null : (result.value.note ?? null));
   }
 
-  function upload(file: File) {
+  function cancel() {
+    ticket.cancel();
+    setBusy(null);
+  }
+
+  async function upload(file: File) {
     setBusy("upload");
     setNote(null);
     const data = new FormData();
     data.set("file", file);
-    startTransition(async () => {
-      const result = await uploadBlockImageAction(projectId, block.id, data);
-      setBusy(null);
-      if (!result.ok) setNote(result.message);
-      else if (result.value.image) onImage(block.id, result.value.image);
-    });
+    const result = await uploadBlockImageAction(projectId, block.id, data);
+    setBusy(null);
+    if (!result.ok) setNote(result.message);
+    else if (result.value.image) onImage(block.id, result.value.image);
   }
 
   /* A FILLED SLOT LOSES ITS PICTURE AND KEEPS ITS PLACE; only an empty slot's
      Remove takes it out of the article (build session, 2026-10-15). */
-  function remove() {
+  async function remove() {
     if (!image) return onRemove(block.id);
     setBusy("remove");
     setNote(null);
-    startTransition(async () => {
-      const result = await clearBlockAction(projectId, block.id);
-      setBusy(null);
-      if (!result.ok) return setNote(result.message);
-      onImage(block.id, null);
-    });
+    const result = await clearBlockAction(projectId, block.id);
+    setBusy(null);
+    if (!result.ok) return setNote(result.message);
+    onImage(block.id, null);
   }
 
   const actions: BoxAction[] = BLOCK_ROUTES.map((route) => ({
@@ -274,7 +327,7 @@ export function ImageBlockCard({
     label: ROUTE_LABEL[route],
     busy: busy === route,
     suggested: !image && route === suggested,
-    onClick: () => (route === "generate" ? setPromptOpen((open) => !open) : route === "upload" ? undefined : fill(route)),
+    onClick: () => (route === "generate" || route === "draw" ? setPanel(route) : route === "upload" ? undefined : void fill(route)),
   }));
 
   return (
@@ -284,16 +337,25 @@ export function ImageBlockCard({
       image={image}
       alt={image?.alt || block.alt}
       actions={actions}
-      disabled={pending || locked || autoWorking}
+      disabled={busy !== null || locked || autoWorking}
       activity={activityOf(autoWorking, busy)}
-      onRemove={remove}
-      removeLabel={image ? "Remove" : "Remove slot"}
+      onCancel={busy === "find" || busy === "generate" || busy === "draw" ? cancel : undefined}
+      onRemove={() => void remove()}
       removeBusy={busy === "remove"}
-      onFile={upload}
+      onFile={(file) => void upload(file)}
       note={note}
-      prompt={promptOpen ? <PromptRow onCancel={() => setPromptOpen(false)} onGenerate={(prompt) => fill("generate", prompt)} /> : null}
+      panel={
+        panel ? (
+          <PromptPanel
+            key={panel}
+            route={panel}
+            onClose={() => setPanel(null)}
+            onRun={(prompt) => void fill(panel, prompt)}
+            onDraft={() => draftBlockPromptAction(projectId, block.id, panel)}
+          />
+        ) : null
+      }
     >
-
       {image?.credit && (
         <p className="text-xs">
           {image.sourceUrl ? (
@@ -332,39 +394,42 @@ export function CoverCard({
   autoWorking?: boolean;
 }) {
   const [busy, setBusy] = useState<BlockRoute | "remove" | null>(null);
-  const [promptOpen, setPromptOpen] = useState(false);
+  const [panel, setPanel] = useState(false);
   const [note, setNote] = useState<string | null>(null);
-  const [pending, startTransition] = useTransition();
+  const ticket = useFillTicket(projectId);
 
-  function remove() {
+  async function remove() {
     setBusy("remove");
     setNote(null);
-    startTransition(async () => {
-      const result = await removeCoverAction(projectId);
-      setBusy(null);
-      if (!result.ok) return setNote(result.message);
-      onImage(null);
-    });
+    const result = await removeCoverAction(projectId);
+    setBusy(null);
+    if (!result.ok) return setNote(result.message);
+    onImage(null);
   }
 
-  function run(route: "find" | "generate" | "upload", file?: File, prompt?: string) {
+  async function run(route: "find" | "generate" | "upload", file?: File, prompt?: string) {
+    const mine = ticket.start();
     setBusy(route);
     setNote(null);
-    setPromptOpen(false);
-    startTransition(async () => {
-      let result;
-      if (route === "upload" && file) {
-        const data = new FormData();
-        data.set("file", file);
-        result = await uploadCoverAction(projectId, data);
-      } else {
-        result = await fillCoverAction(projectId, route as "find" | "generate", prompt);
-      }
-      setBusy(null);
-      if (!result.ok) return setNote(result.message);
-      if (result.value.image) onImage(result.value.image);
-      setNote(result.value.image ? null : (result.value.note ?? null));
-    });
+    setPanel(false);
+    let result;
+    if (route === "upload" && file) {
+      const data = new FormData();
+      data.set("file", file);
+      result = await uploadCoverAction(projectId, data);
+    } else {
+      result = await fillCoverAction(projectId, route as "find" | "generate", prompt, mine);
+    }
+    if (!ticket.finish(mine)) return;
+    setBusy(null);
+    if (!result.ok) return setNote(result.message);
+    if (result.value.image) onImage(result.value.image);
+    setNote(result.value.image ? null : (result.value.note ?? null));
+  }
+
+  function cancel() {
+    ticket.cancel();
+    setBusy(null);
   }
 
   /* With a cover, the buttons say they replace it. */
@@ -373,7 +438,7 @@ export function CoverCard({
     label: !image ? ROUTE_LABEL[route] : route === "find" ? "Find another" : route === "generate" ? "Generate new" : "Upload new",
     busy: busy === route,
     suggested: false,
-    onClick: () => (route === "generate" ? setPromptOpen((open) => !open) : route === "upload" ? undefined : run("find")),
+    onClick: () => (route === "generate" ? setPanel(true) : route === "upload" ? undefined : void run("find")),
   }));
 
   return (
@@ -383,45 +448,118 @@ export function CoverCard({
       image={image}
       alt={image?.alt || "The article's cover"}
       actions={actions}
-      disabled={pending || locked || autoWorking}
+      disabled={busy !== null || locked || autoWorking}
       activity={activityOf(autoWorking, busy)}
-      onRemove={image ? remove : undefined}
-      removeLabel="Remove"
+      onCancel={busy === "find" || busy === "generate" ? cancel : undefined}
+      onRemove={image ? () => void remove() : undefined}
       removeBusy={busy === "remove"}
-      onFile={(file) => run("upload", file)}
+      onFile={(file) => void run("upload", file)}
       note={note}
-      prompt={promptOpen ? <PromptRow onCancel={() => setPromptOpen(false)} onGenerate={(prompt) => run("generate", undefined, prompt)} /> : null}
+      panel={
+        panel ? (
+          <PromptPanel
+            route="generate"
+            onClose={() => setPanel(false)}
+            onRun={(prompt) => void run("generate", undefined, prompt)}
+            onDraft={() => draftCoverPromptAction(projectId)}
+          />
+        ) : null
+      }
     >
       {image?.credit && <p className="text-xs">{image.credit} (credited in References)</p>}
     </ImageBox>
   );
 }
 
-/** Generate's own box: the editor's words for the picture, or nothing to have them written. */
-function PromptRow({ onGenerate, onCancel }: { onGenerate: (prompt: string) => void; onCancel: () => void }) {
+/**
+ * GENERATE'S AND DRAW'S PROMPT, INSIDE THE PICTURE (build session, 2026-10-15:
+ * "the generate or draw action must be inside the image box. not under").
+ * The editor writes what to make, or presses Write prompt to have it written
+ * from the article ("for generate and draw, there must be auto draft prompt
+ * function") and changes it before anything is made. Left empty, the prompt
+ * is written from the article when the picture is made.
+ */
+function PromptPanel({
+  route,
+  onRun,
+  onClose,
+  onDraft,
+}: {
+  route: "generate" | "draw";
+  onRun: (prompt: string) => void;
+  onClose: () => void;
+  onDraft: () => Promise<Drafted>;
+}) {
   const [prompt, setPrompt] = useState("");
+  const [drafting, setDrafting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const Icon = ROUTE_ICON[route];
+  const plain =
+    "inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:shadow-[var(--shadow-focus)] disabled:cursor-not-allowed disabled:opacity-60";
+
+  async function draft() {
+    setDrafting(true);
+    setError(null);
+    const result = await onDraft();
+    setDrafting(false);
+    if (result.ok) setPrompt(result.value);
+    else setError(result.message);
+  }
+
   return (
     <form
-      className="flex flex-col gap-2 sm:flex-row sm:items-center"
+      className="rounded-2xl bg-surface/95 p-2 shadow-[var(--shadow-card)] backdrop-blur-sm"
       onSubmit={(event) => {
         event.preventDefault();
-        onGenerate(prompt);
+        onRun(prompt);
+      }}
+      onKeyDown={(event) => {
+        if (event.key === "Escape") onClose();
       }}
     >
-      <input
+      <textarea
         autoFocus
+        rows={3}
         value={prompt}
+        disabled={drafting}
         onChange={(event) => setPrompt(event.target.value)}
-        placeholder="Describe the picture, or leave empty to write it from the article"
-        aria-label="Describe the picture to generate"
-        className="cs-input h-9 flex-1 rounded-lg bg-sunken text-sm"
+        onKeyDown={(event) => {
+          if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+            event.preventDefault();
+            onRun(prompt);
+          }
+        }}
+        placeholder={
+          drafting
+            ? "Writing a prompt from the article…"
+            : route === "generate"
+              ? "Describe the picture, or press Write prompt"
+              : "Describe the figure, or press Write prompt"
+        }
+        aria-label={route === "generate" ? "Describe the picture to generate" : "Describe the figure to draw"}
+        className="block max-h-32 w-full resize-none bg-transparent px-2 py-1.5 text-sm text-ink placeholder:text-ink-3 focus:outline-none"
       />
-      <div className="flex gap-2">
-        <button type="submit" className="cs-btn h-9 px-3 text-sm">
-          Generate
+      {error && (
+        <p role="status" className="px-2 pb-1 text-xs text-danger-ink">
+          {error}
+        </p>
+      )}
+      <div className="flex items-center gap-1.5">
+        <button type="button" onClick={() => void draft()} disabled={drafting} className={`${plain} bg-sunken text-ink hover:bg-line`}>
+          {drafting ? (
+            <LoaderCircle aria-hidden className="size-3.5 animate-spin motion-reduce:animate-none" />
+          ) : (
+            <WandSparkles aria-hidden className="size-3.5" />
+          )}
+          {drafting ? "Writing…" : prompt ? "Write again" : "Write prompt"}
         </button>
-        <button type="button" onClick={onCancel} className="cs-btn h-9 px-3 text-sm">
+        <span className="flex-1" />
+        <button type="button" onClick={onClose} className={`${plain} text-ink-2 hover:bg-sunken hover:text-ink`}>
           Cancel
+        </button>
+        <button type="submit" disabled={drafting} className={`${plain} bg-ink text-surface hover:opacity-90`}>
+          <Icon aria-hidden className="size-3.5" />
+          {ROUTE_LABEL[route]}
         </button>
       </div>
     </form>

@@ -17,8 +17,9 @@ import { IMAGE_ASPECT_RATIOS, type ImageAspectRatio } from "@/lib/image/provider
 import { projects } from "@/db/schema";
 import type { ReferenceCandidate } from "@/lib/image/reference-sources";
 import { imageSystemPromptFor } from "@/prompts/system";
-import { blockImagePromptTask, drawFigureTask } from "@/prompts/direction";
+import { blockImagePromptTask, drawBriefTask, drawFigureTask } from "@/prompts/direction";
 import { finishImagePrompt } from "@/lib/image/visual-brief";
+import { isFillCancelled, throwIfCancelled } from "@/lib/pipeline/fill-cancel";
 import { parseImageBlocks, purposeFromContext, slotOf, type LocatedImageBlock } from "@/lib/direction/image-blocks";
 import {
   AUTO_FILL_ROUTES,
@@ -56,9 +57,11 @@ import type { BlockFillResult, BlockImageView } from "./views";
  * is written, held to the article type's image rules. Otherwise the editor
  * asked, and may use any route (build session, 2026-10-15: "the rule of
  * having related image is only applied to the auto generated in the first
- * time"). `prompt`: the editor's own words for Generate.
+ * time"). `prompt`: the editor's own words for Generate or Draw. `ticket`:
+ * the browser's name for this fill, so Cancel can stop it before it saves
+ * (@/lib/pipeline/fill-cancel).
  */
-export type FillMode = { auto?: boolean; prompt?: string };
+export type FillMode = { auto?: boolean; prompt?: string; ticket?: string };
 
 type BlockContext = {
   loaded: LoadedProject;
@@ -260,6 +263,7 @@ export async function findBlockImageCore(projectId: string, blockId: string, mod
     }
   }
 
+  throwIfCancelled(mode.ticket);
   if (!chosen && policy.find.includes("library")) {
     tried.push("the photo library");
     const search = await findRelatedReferences({
@@ -276,6 +280,7 @@ export async function findBlockImageCore(projectId: string, blockId: string, mod
     chosen = search.candidates[0] ?? null;
   }
 
+  throwIfCancelled(mode.ticket);
   const log = { route: "find" as const, tried, judged: stats.judged, rejected: stats.rejected };
   if (!chosen) {
     console.info(`[direction] image ${JSON.stringify({ projectId, block: blockId, route: "find", empty: true, ...stats })}`);
@@ -309,6 +314,57 @@ export async function findBlockImageCore(projectId: string, blockId: string, mod
 
 /* ------------------------------------------------------------ Generate --- */
 
+/** The image prompt for a block, written from its purpose by the image model. */
+async function writeGeneratePrompt(ctx: BlockContext): Promise<string> {
+  const { image: model } = await getModels();
+  const { text } = await runText({
+    model,
+    system: imageSystemPromptFor(ctx.labels),
+    task: blockImagePromptTask({
+      title: ctx.title,
+      labels: ctx.labels,
+      purpose: ctx.block.purpose,
+      caption: ctx.block.caption,
+      searchHint: ctx.block.searchHint,
+      role: ctx.block.role ?? "mood",
+    }),
+    maxTokens: 650,
+    projectId: ctx.loaded.project.id,
+    stage: "block_image_prompt",
+  });
+  return text.trim();
+}
+
+/** What a figure should show, written from the block's purpose and the text around it. */
+async function writeDrawBrief(ctx: BlockContext): Promise<string> {
+  const { drafting: model } = await getModels();
+  const { text } = await runText({
+    model,
+    system: "You brief clean editorial figures for a design publication.",
+    task: drawBriefTask({
+      title: ctx.title,
+      labels: ctx.labels,
+      role: ctx.block.role ?? "diagram",
+      purpose: ctx.block.purpose,
+      context: contextAround(ctx.article, ctx.block),
+    }),
+    maxTokens: 400,
+    projectId: ctx.loaded.project.id,
+    stage: "block_draw_brief",
+  });
+  return text.trim().replace(/—/g, ", ");
+}
+
+/**
+ * WRITE THE PROMPT FOR ME (build session, 2026-10-15: "for generate and draw,
+ * there must be auto draft prompt function"). The words go into the box for
+ * the editor to read and change before anything is made.
+ */
+export async function draftBlockPromptCore(projectId: string, blockId: string, route: "generate" | "draw"): Promise<string> {
+  const ctx = await loadBlock(projectId, blockId);
+  return route === "generate" ? writeGeneratePrompt(ctx) : writeDrawBrief(ctx);
+}
+
 export async function generateBlockImageCore(projectId: string, blockId: string, mode: FillMode = {}): Promise<BlockFillResult> {
   const ctx = await loadBlock(projectId, blockId);
   if (mode.auto) assertRoute(ctx, "generate");
@@ -321,30 +377,14 @@ export async function generateBlockImageCore(projectId: string, blockId: string,
 
   /* THE EDITOR'S OWN WORDS, when given, are the picture; otherwise the prompt is
      written from the block's purpose. */
-  const own = mode.prompt?.trim();
-  const { image: model } = await getModels();
-  const { text } = own
-    ? { text: own }
-    : await runText({
-    model,
-    system: imageSystemPromptFor(ctx.labels),
-    task: blockImagePromptTask({
-      title: ctx.title,
-      labels: ctx.labels,
-      purpose: ctx.block.purpose,
-      caption: ctx.block.caption,
-      searchHint: ctx.block.searchHint,
-      role: ctx.block.role ?? "mood",
-    }),
-    maxTokens: 650,
-    projectId,
-    stage: "block_image_prompt",
-  });
+  const text = mode.prompt?.trim() || (await writeGeneratePrompt(ctx));
+  throwIfCancelled(mode.ticket);
   const prompt = finishImagePrompt(text, "illustration", false);
   const result = await provider.generate({ prompt, aspectRatio: "3:2", referenceImages: [] }, option.keyId || undefined);
   const first = result.images[0];
   if (!first) throw new Error("The generator returned no image.");
   await logImageUsage({ projectId, stage: "block_image_generate", model: provider.model, count: 1, unitPrice: provider.indicativePricePerImage });
+  throwIfCancelled(mode.ticket);
   const image = await saveBlockImage(ctx, {
     data: first.data,
     route: "generate",
@@ -399,11 +439,13 @@ export async function drawBlockImageCore(projectId: string, blockId: string, mod
       purpose: ctx.block.purpose,
       caption: ctx.block.caption,
       context: contextAround(ctx.article, ctx.block),
+      brief: mode.prompt?.trim() || undefined,
     }),
     maxTokens: 6000,
     projectId,
     stage: "block_draw_svg",
   });
+  throwIfCancelled(mode.ticket);
   const svg = sanitizeSvg(text);
   const sharp = await loadSharp();
   // Rendered at twice the drawing's size, then stored at the delivery width.
@@ -422,6 +464,7 @@ export async function drawBlockImageCore(projectId: string, blockId: string, mod
       return rendered;
     }
   })();
+  throwIfCancelled(mode.ticket);
   const image = await saveBlockImage(ctx, {
     data: png,
     route: "draw",
@@ -600,6 +643,7 @@ export async function findCoverCore(projectId: string, mode: FillMode = {}): Pro
   const before = new Set((await loadProject(projectId))?.imageReferences.map((reference) => reference.id) ?? []);
 
   const drafted = await generateImagePromptCore(projectId, { variationCount: 1 }).catch(() => null);
+  throwIfCancelled(mode.ticket);
   const found = await findReferenceImagesCore(projectId, {
     query: drafted?.brief.photoQuery ?? "",
     limit: 2,
@@ -617,6 +661,7 @@ export async function findCoverCore(projectId: string, mode: FillMode = {}): Pro
       ? [subject]
       : [subject ?? fresh.find((item) => item.origin === "article_source"), fresh.find((item) => item.origin === "open_license")];
   const tried: string[] = [];
+  throwIfCancelled(mode.ticket);
   for (const candidate of candidates) {
     if (!candidate) continue;
     tried.push(candidate.sourceUrl ?? candidate.name);
@@ -660,6 +705,14 @@ export async function removeCoverCore(projectId: string): Promise<null> {
   return null;
 }
 
+/** Write the prompt for me, for the cover's Generate: the prompt without the style lines added on sending. */
+export async function draftCoverPromptCore(projectId: string): Promise<string> {
+  await labelsOf(projectId);
+  const drafted = await generateImagePromptCore(projectId, { variationCount: 1 });
+  const cut = drafted.prompt.lastIndexOf("\n\n");
+  return (cut > 0 ? drafted.prompt.slice(0, cut) : drafted.prompt).trim();
+}
+
 export async function generateCoverCore(projectId: string, mode: FillMode = {}): Promise<BlockFillResult> {
   const loaded = await loadProject(projectId);
   const labels = loaded?.project.inputs.labels;
@@ -669,6 +722,7 @@ export async function generateCoverCore(projectId: string, mode: FillMode = {}):
   const option = options.find((entry) => !entry.capabilities.referenceImagesRequired);
   if (!option) throw new Error("No image generator is configured (add a Fal.ai key in Settings).");
   const own = mode.prompt?.trim();
+  throwIfCancelled(mode.ticket);
   const drafted = own
     ? { prompt: finishImagePrompt(own, "photograph", false), variants: [] as { prompt: string }[] }
     : await generateImagePromptCore(projectId, { variationCount: 1 });
@@ -686,6 +740,15 @@ export async function generateCoverCore(projectId: string, mode: FillMode = {}):
   });
   const first = run.images[0];
   if (!first) throw new Error(run.failureReason ?? "No cover was generated.");
+  if (isFillCancelled(mode.ticket)) {
+    // Made but not wanted: it must not become the cover by being the newest.
+    const db = await getDb();
+    for (const made of run.images) {
+      const [row] = await db.delete(images).where(eq(images.id, made.id)).returning();
+      if (row) await deleteStoredImage(row.storagePath).catch(() => false);
+    }
+    throwIfCancelled(mode.ticket);
+  }
   await setCover(projectId, first.id);
   return { image: await coverView(first.id), log: { route: "generate", tried: [option.label], judged: 0, rejected: 0 } };
 }

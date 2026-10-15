@@ -118,7 +118,10 @@ export function ArticleEditor({
   disabled = false,
   before,
   railHost,
+  preview = false,
 }: {
+  /** Part of the article shown while the rest is still being prepared: no toolbar, nothing to edit, no space under it. */
+  preview?: boolean;
   /**
    * Where the toolbar stands as a vertical bar on a wide screen: an element in
    * the page's empty left column, before the article box (build session,
@@ -177,19 +180,21 @@ export function ArticleEditor({
 
   return (
     <BlockRenderer.Provider value={renderImageBlock ?? null}>
-      {editor && (
+      {editor && !preview && (
         <div className={railHost ? "lg:hidden" : undefined}>
           <Toolbar editor={editor} addImage={addImage} disabled={disabled} orientation="horizontal" />
         </div>
       )}
-      {editor && railHost && createPortal(<Toolbar editor={editor} addImage={addImage} disabled={disabled} orientation="vertical" />, railHost)}
+      {editor && railHost && !preview && createPortal(<Toolbar editor={editor} addImage={addImage} disabled={disabled} orientation="vertical" />, railHost)}
       {/* CENTRED, WITH THE SAME SPACE EACH SIDE (build session, 2026-10-15): a
           readable measure in the middle of the box on a wide screen, the box's
           own margin on a narrow one. The cover and the cards share it. The top
           matches the sides, so the cover drops its own top margin. */}
-      <div className="mx-auto w-full max-w-[46rem] px-5 pb-16 pt-5 sm:px-8 sm:pb-20 sm:pt-8 [&>figure:first-child]:mt-0">
+      <div
+        className={`mx-auto w-full max-w-[46rem] px-5 pt-5 sm:px-8 sm:pt-8 [&>figure:first-of-type]:mt-0 ${preview ? "pb-0" : "pb-16 sm:pb-20"}`}
+      >
         {before}
-        <div className="prose-draft prose-editor" lang="en">
+        <div className={`prose-draft prose-editor ${preview ? "prose-editor-preview" : ""}`} lang="en">
           <EditorContent editor={editor} />
         </div>
       </div>
@@ -298,6 +303,43 @@ function Toolbar({
   );
   const icon = "size-4";
   const tag = "text-[13px] font-semibold leading-none tracking-tight";
+  /* BESIDE THE LINK BUTTON, IN FRONT OF EVERYTHING (build session,
+     2026-10-15: "it must show beside the link button and front most layer").
+     On a wide screen it opens to the right of the button, over the article;
+     across the top it opens under the toolbar. */
+  const linkForm = linkOpen && (
+    <form
+      className={
+        vertical
+          ? "absolute left-full top-1/2 z-50 ml-3 flex w-96 -translate-y-1/2 items-center gap-2 rounded-2xl border border-line bg-surface p-2 shadow-[var(--shadow-pop)]"
+          : "mt-1.5 flex items-center gap-2 pb-1"
+      }
+      onSubmit={(event) => {
+        event.preventDefault();
+        applyLink();
+      }}
+      onKeyDown={(event) => {
+        if (event.key === "Escape") setLinkOpen(false);
+      }}
+    >
+      <label className="sr-only" htmlFor={`article-link-url-${orientation}`}>Link address</label>
+      <input
+        id={`article-link-url-${orientation}`}
+        autoFocus
+        value={linkUrl}
+        onChange={(event) => setLinkUrl(event.target.value)}
+        placeholder="Paste a link"
+        title="Leave it empty and apply to remove the link"
+        className="cs-input h-9 flex-1 text-sm"
+      />
+      <button type="submit" className="cs-btn h-9 px-3 text-sm">
+        Apply
+      </button>
+      <button type="button" onClick={() => setLinkOpen(false)} className="cs-btn h-9 px-3 text-sm">
+        Cancel
+      </button>
+    </form>
+  );
 
   return (
     <div
@@ -307,7 +349,7 @@ function Toolbar({
       className={
         vertical
           ? /* A bar of its own beside the article, held in view while scrolling. */
-            "relative sticky top-20 rounded-2xl border border-line bg-surface p-1.5 shadow-[var(--shadow-card)]"
+            "sticky top-20 z-40 rounded-2xl border border-line bg-surface p-1.5 shadow-[var(--shadow-card)]"
           : /* Across the top of the box, inset from its rounded corner. */
             "sticky top-12 z-[5] rounded-t-2xl border-b border-line bg-surface/95 px-4 py-2.5 backdrop-blur-sm sm:px-6"
       }
@@ -324,7 +366,10 @@ function Toolbar({
         {divider}
         {button({ label: "Bold", icon: <Bold aria-hidden className={icon} />, active: state.bold, onClick: () => editor.chain().focus().toggleBold().run() })}
         {button({ label: "Italic", icon: <Italic aria-hidden className={icon} />, active: state.italic, onClick: () => editor.chain().focus().toggleItalic().run() })}
-        {button({ label: "Link", icon: <Link2 aria-hidden className={icon} />, active: state.link || linkOpen, onClick: () => (linkOpen ? setLinkOpen(false) : openLink()) })}
+        <span className="relative">
+          {button({ label: "Link", icon: <Link2 aria-hidden className={icon} />, active: state.link || linkOpen, onClick: () => (linkOpen ? setLinkOpen(false) : openLink()) })}
+          {vertical && linkForm}
+        </span>
         {divider}
         {button({ label: "Bullet list", icon: <List aria-hidden className={icon} />, active: state.bullet, onClick: () => editor.chain().focus().toggleBulletList().run() })}
         {button({ label: "Numbered list", icon: <ListOrdered aria-hidden className={icon} />, active: state.ordered, onClick: () => editor.chain().focus().toggleOrderedList().run() })}
@@ -342,35 +387,7 @@ function Toolbar({
           onClick: insertImage,
         })}
       </div>
-      {linkOpen && (
-        <form
-          className={
-            vertical
-              ? "absolute left-full top-0 z-10 ml-2 flex w-96 items-center gap-2 rounded-2xl border border-line bg-surface p-2 shadow-[var(--shadow-pop)]"
-              : "mt-1.5 flex items-center gap-2 pb-1"
-          }
-          onSubmit={(event) => {
-            event.preventDefault();
-            applyLink();
-          }}
-        >
-          <label className="sr-only" htmlFor={`article-link-url-${orientation}`}>Link address</label>
-          <input
-            id={`article-link-url-${orientation}`}
-            autoFocus
-            value={linkUrl}
-            onChange={(event) => setLinkUrl(event.target.value)}
-            placeholder="https://… (empty removes the link)"
-            className="cs-input h-9 flex-1 text-sm"
-          />
-          <button type="submit" className="cs-btn h-9 px-3 text-sm">
-            Apply
-          </button>
-          <button type="button" onClick={() => setLinkOpen(false)} className="cs-btn h-9 px-3 text-sm">
-            Cancel
-          </button>
-        </form>
-      )}
+      {!vertical && linkForm}
     </div>
   );
 }

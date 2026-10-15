@@ -244,13 +244,15 @@ export function drawFigureTask(params: {
   purpose: string;
   caption: string;
   context: string;
+  /** The editor's own description of the figure, when they wrote or kept one. It wins over the purpose. */
+  brief?: string;
 }): string {
   return `## Task: draw one clean figure for an article, as SVG
 
 Article: ${params.title} (${TYPE_NAMES[params.labels.type]})
 Figure role: ${params.role}
 What the reader should understand: ${params.purpose}
-
+${params.brief ? `What the editor asked the figure to show (follow this): ${params.brief}\n` : ""}
 The part of the article it sits in:
 ---
 ${params.context}
@@ -272,6 +274,30 @@ Rules:
 - Keep everything inside the canvas with at least 48px of margin.
 - No title and no caption or summary sentence anywhere in the figure. Text is only short labels on the parts.
 - Never use the em dash.`;
+}
+
+/** A short description of one figure, for the editor to read and change before Draw (preview only). */
+export function drawBriefTask(params: {
+  title: string;
+  labels: ArticleLabels;
+  role: string;
+  purpose: string;
+  context: string;
+}): string {
+  return `## Task: describe one figure for an article
+
+Article: ${params.title} (${TYPE_NAMES[params.labels.type]})
+Figure role: ${params.role}
+What the reader should understand: ${params.purpose || "what the text around the figure explains"}
+
+The part of the article it sits in:
+---
+${params.context}
+---
+
+Describe the figure an illustrator should draw, in two to four short sentences: what it shows, its parts and how they are arranged, and the few short labels on it. Use only facts from the article. No title and no caption in the figure. Never use the em dash.
+
+Respond with the description only, no quotes, no preamble.`;
 }
 
 /** Propose labels for an article from what the editor typed (preview only). */

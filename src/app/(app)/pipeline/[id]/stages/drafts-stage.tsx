@@ -120,6 +120,21 @@ export function DraftsStage({
       }
     : undefined;
   const editorMode = twoSteps && Boolean(draft.contentMd) && !draft.streaming && !revising && !preparing;
+  /* How much of the page is ready while the first pictures are added: up to
+     and including the step being worked on. Null while the text is still
+     being written or the list of pictures is not known yet. */
+  const reveal = useMemo(() => {
+    if (!preparing || draft.streaming || !draft.contentMd || prepSteps.length === 0) return null;
+    const next = prepSteps.find((step) => step.state === "waiting" || step.state === "working");
+    const blocks = parseImageBlocks(draft.contentMd);
+    const blockSteps = prepSteps.filter((step) => step.id !== "cover");
+    if (!next) return { text: draft.contentMd, complete: true, restImages: 0 };
+    if (next.id === "cover") return { text: "", complete: false, restImages: blockSteps.length };
+    const at = blocks.find((block) => block.id === next.id);
+    if (!at) return { text: draft.contentMd, complete: true, restImages: 0 };
+    const after = blockSteps.slice(blockSteps.findIndex((step) => step.id === next.id) + 1).length;
+    return { text: draft.contentMd.slice(0, at.end), complete: false, restImages: after };
+  }, [preparing, draft.streaming, draft.contentMd, prepSteps]);
 
   /* PREVIEW ONLY: removing a block takes it out of the draft (saved at once,
      with the version before kept) and drops the picture that filled it. */
@@ -612,8 +627,38 @@ export function DraftsStage({
 
             {draft.error && <p className="mb-2 mx-5 rounded-2xl bg-danger-soft px-4 py-3 text-sm text-danger sm:mx-8" role="alert">{draft.error}</p>}
 
-            {twoSteps && preparing ? (
-              <PreparingSkeleton writing={draft.streaming || !draft.contentMd} steps={prepSteps} />
+            {twoSteps && preparing && reveal ? (
+              /* SHOW WHAT IS DONE (build session, 2026-10-15: "instead of
+                 waiting for everything done, show the section that is done").
+                 The page fills from the top: the cover, then the article down
+                 to the picture being added, which acts it out; the skeleton
+                 holds the place of the rest. Nothing can be edited until all
+                 of it is there. */
+              <>
+                <ArticleEditor
+                  preview
+                  disabled
+                  markdown={reveal.text}
+                  renderImageBlock={renderImageBlock}
+                  onChange={() => undefined}
+                  before={
+                    <>
+                      <PrepStatus writing={false} steps={prepSteps} />
+                      <CoverCard
+                        projectId={projectId}
+                        routes={coverRoutes}
+                        image={cover}
+                        locked
+                        autoWorking={autoWorking === "cover"}
+                        onImage={setCover}
+                      />
+                    </>
+                  }
+                />
+                {!reveal.complete && <PreparingSkeleton part="rest" images={reveal.restImages} />}
+              </>
+            ) : twoSteps && preparing ? (
+              <PreparingSkeleton part="all" writing={draft.streaming || !draft.contentMd} steps={prepSteps} />
             ) : editorMode ? (
               /* PREVIEW ONLY: the new direction's draft box IS the editor: a
                  toolbar across the top, the cover and the article under it, the
@@ -795,13 +840,8 @@ export function DraftsStage({
   );
 }
 
-/**
- * PREVIEW ONLY: the first arrival at the draft, while the article is written
- * and its first pictures are added. A skeleton of the page stands in for the
- * article (build session, 2026-10-15: "or you can use skeleton loader"), so the
- * editor never opens on half a page; one short line says what is happening.
- */
-function PreparingSkeleton({
+/** The one line that says what is being prepared, above the page while it fills. */
+function PrepStatus({
   writing,
   steps,
 }: {
@@ -814,7 +854,26 @@ function PreparingSkeleton({
     : steps.length
       ? `Adding the pictures, ${Math.min(finished + 1, steps.length)} of ${steps.length}…`
       : "Adding the pictures…";
-  const images = Math.max(1, steps.filter((step) => step.id !== "cover").length);
+  return (
+    <p className="mb-4 flex items-center gap-2 text-sm text-ink-2" role="status" aria-live="polite">
+      <span aria-hidden className="inline-block size-2 animate-pulse rounded-full bg-accent motion-reduce:animate-none" />
+      {status}
+    </p>
+  );
+}
+
+/**
+ * PREVIEW ONLY: the first arrival at the draft, while the article is written
+ * and its first pictures are added. A skeleton of the page stands in for what
+ * is not ready yet (build session, 2026-10-15: "or you can use skeleton
+ * loader"): the whole page while the text is written (`all`), then only the
+ * part below what is done (`rest`).
+ */
+function PreparingSkeleton(
+  props:
+    | { part: "all"; writing: boolean; steps: { id: string; label: string; state: "waiting" | "working" | "done" | "empty" }[] }
+    | { part: "rest"; images: number },
+) {
   const bar = "cs-shimmer rounded-full bg-sunken";
   const lines = (widths: string[]) => (
     <div className="space-y-2.5">
@@ -823,12 +882,28 @@ function PreparingSkeleton({
       ))}
     </div>
   );
+  const section = (index: number) => (
+    <div key={index} className="space-y-7">
+      <div className={`${bar} h-5`} style={{ width: index % 2 ? "38%" : "46%" }} />
+      {lines(["100%", "94%", "98%", "62%"])}
+      <div className="cs-shimmer aspect-[16/9] w-full rounded-2xl bg-sunken" />
+      {lines(["97%", "90%", "48%"])}
+    </div>
+  );
+  if (props.part === "rest") {
+    return (
+      <div className="mx-auto w-full max-w-[46rem] px-5 pb-16 pt-0 sm:px-8 sm:pb-20" aria-busy="true">
+        <div aria-hidden className="space-y-7">
+          {Array.from({ length: props.images }, (_, index) => section(index))}
+          {lines(["100%", "92%", "96%", "58%"])}
+        </div>
+      </div>
+    );
+  }
+  const images = Math.max(1, props.steps.filter((step) => step.id !== "cover").length);
   return (
     <div className="mx-auto w-full max-w-[46rem] px-5 pb-16 pt-5 sm:px-8 sm:pb-20 sm:pt-8" aria-busy="true">
-      <p className="mb-4 flex items-center gap-2 text-sm text-ink-2" role="status" aria-live="polite">
-        <span aria-hidden className="inline-block size-2 animate-pulse rounded-full bg-accent motion-reduce:animate-none" />
-        {status}
-      </p>
+      <PrepStatus writing={props.writing} steps={props.steps} />
       <div aria-hidden className="space-y-7">
         <div className="cs-shimmer aspect-[16/9] w-full rounded-2xl bg-sunken" />
         <div className="space-y-3">
@@ -836,14 +911,7 @@ function PreparingSkeleton({
           <div className={`${bar} h-8`} style={{ width: "54%" }} />
         </div>
         {lines(["96%", "72%"])}
-        {Array.from({ length: images }, (_, index) => (
-          <div key={index} className="space-y-7">
-            <div className={`${bar} h-5`} style={{ width: index % 2 ? "38%" : "46%" }} />
-            {lines(["100%", "94%", "98%", "62%"])}
-            <div className="cs-shimmer aspect-[16/9] w-full rounded-2xl bg-sunken" />
-            {lines(["97%", "90%", "48%"])}
-          </div>
-        ))}
+        {Array.from({ length: images }, (_, index) => section(index))}
       </div>
     </div>
   );

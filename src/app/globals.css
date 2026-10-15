@@ -1752,6 +1752,10 @@ main:has(.cs-create-page),
   min-height: 24rem;
   caret-color: var(--accent);
 }
+/* The part shown while the rest is prepared ends where its text ends. */
+.prose-editor.prose-editor-preview .ProseMirror {
+  min-height: 0;
+}
 
 /* PREVIEW ONLY: room for the editor's vertical toolbar in the column before
    the article (the same tracks as RAIL_GRID, with the first one never narrower

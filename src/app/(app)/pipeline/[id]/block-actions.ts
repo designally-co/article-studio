@@ -7,6 +7,8 @@ import {
   autoCoverCore,
   claimAutoImagesCore,
   clearBlockImagesCore,
+  draftBlockPromptCore,
+  draftCoverPromptCore,
   drawBlockImageCore,
   findBlockImageCore,
   findCoverCore,
@@ -40,20 +42,37 @@ async function answer<T>(work: () => Promise<T>): Promise<Answer<T>> {
   }
 }
 
-/** An editor's click: any route, whatever the article type; Generate may carry their own prompt. */
+/**
+ * An editor's click: any route, whatever the article type; Generate and Draw
+ * may carry their own prompt. `ticket` names the fill for Cancel.
+ */
 export async function fillBlockAction(
   projectId: string,
   blockId: string,
   route: "find" | "generate" | "draw",
   prompt?: string,
+  ticket?: string,
 ): Promise<Answer<BlockFillResult>> {
   return answer(() =>
     route === "find"
-      ? findBlockImageCore(projectId, blockId)
+      ? findBlockImageCore(projectId, blockId, { ticket })
       : route === "generate"
-        ? generateBlockImageCore(projectId, blockId, { prompt })
-        : drawBlockImageCore(projectId, blockId),
+        ? generateBlockImageCore(projectId, blockId, { prompt, ticket })
+        : drawBlockImageCore(projectId, blockId, { prompt, ticket }),
   );
+}
+
+/** Write the prompt for me: Generate's image prompt or Draw's description, for the editor to change. */
+export async function draftBlockPromptAction(
+  projectId: string,
+  blockId: string,
+  route: "generate" | "draw",
+): Promise<Answer<string>> {
+  return answer(() => draftBlockPromptCore(projectId, blockId, route));
+}
+
+export async function draftCoverPromptAction(projectId: string): Promise<Answer<string>> {
+  return answer(() => draftCoverPromptCore(projectId));
 }
 
 /**
@@ -104,8 +123,9 @@ export async function fillCoverAction(
   projectId: string,
   route: "find" | "generate",
   prompt?: string,
+  ticket?: string,
 ): Promise<Answer<BlockFillResult>> {
-  return answer(() => (route === "find" ? findCoverCore(projectId) : generateCoverCore(projectId, { prompt })));
+  return answer(() => (route === "find" ? findCoverCore(projectId, { ticket }) : generateCoverCore(projectId, { prompt, ticket })));
 }
 
 export async function uploadCoverAction(projectId: string, formData: FormData): Promise<Answer<BlockFillResult>> {
