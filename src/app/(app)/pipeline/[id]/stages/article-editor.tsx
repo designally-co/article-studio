@@ -16,15 +16,11 @@ import StarterKit from "@tiptap/starter-kit";
 import { Markdown } from "@tiptap/markdown";
 import {
   Bold,
-  Heading1,
-  Heading2,
-  Heading3,
   ImagePlus,
   Italic,
   Link2,
   List,
   ListOrdered,
-  Pilcrow,
   Quote,
   Redo2,
   Undo2,
@@ -272,6 +268,7 @@ function Toolbar({ editor, addImage, disabled }: { editor: Editor; addImage?: Ad
   );
   const divider = <span aria-hidden className="mx-1 h-5 w-px shrink-0 bg-line" />;
   const icon = "size-4";
+  const tag = "text-[13px] font-semibold leading-none tracking-tight";
 
   return (
     <div
@@ -280,12 +277,14 @@ function Toolbar({ editor, addImage, disabled }: { editor: Editor; addImage?: Ad
       className="sticky top-12 z-[5] rounded-t-2xl border-b border-line bg-surface/95 px-2 py-1.5 backdrop-blur-sm lg:top-14 sm:px-4"
     >
       <div className="flex items-center gap-0.5 overflow-x-auto">
-        {button({ label: "Normal text", icon: <Pilcrow aria-hidden className={icon} />, active: state.paragraph, onClick: () => editor.chain().focus().setParagraph().run() })}
-        {/* THE TITLE HAS A STYLE OF ITS OWN, so a title deleted by accident can
-            be typed again and made the title (build session, 2026-10-15). */}
-        {button({ label: "Title", icon: <Heading1 aria-hidden className={icon} />, active: state.h1, onClick: () => editor.chain().focus().toggleHeading({ level: 1 }).run() })}
-        {button({ label: "Section heading", icon: <Heading2 aria-hidden className={icon} />, active: state.h2, onClick: () => editor.chain().focus().toggleHeading({ level: 2 }).run() })}
-        {button({ label: "Sub-heading", icon: <Heading3 aria-hidden className={icon} />, active: state.h3, onClick: () => editor.chain().focus().toggleHeading({ level: 3 }).run() })}
+        {/* IN THE ORDER OF THE HIERARCHY, H1 to P, each named by its plain tag
+            (build session, 2026-10-15): the pilcrow and subscript icons were not
+            understood. H1 is the title, so one deleted by accident can be typed
+            again and made the title. */}
+        {button({ label: "Title (H1)", icon: <span className={tag}>H1</span>, active: state.h1, onClick: () => editor.chain().focus().toggleHeading({ level: 1 }).run() })}
+        {button({ label: "Section heading (H2)", icon: <span className={tag}>H2</span>, active: state.h2, onClick: () => editor.chain().focus().toggleHeading({ level: 2 }).run() })}
+        {button({ label: "Sub-heading (H3)", icon: <span className={tag}>H3</span>, active: state.h3, onClick: () => editor.chain().focus().toggleHeading({ level: 3 }).run() })}
+        {button({ label: "Paragraph (P)", icon: <span className={tag}>P</span>, active: state.paragraph, onClick: () => editor.chain().focus().setParagraph().run() })}
         {divider}
         {button({ label: "Bold", icon: <Bold aria-hidden className={icon} />, active: state.bold, onClick: () => editor.chain().focus().toggleBold().run() })}
         {button({ label: "Italic", icon: <Italic aria-hidden className={icon} />, active: state.italic, onClick: () => editor.chain().focus().toggleItalic().run() })}

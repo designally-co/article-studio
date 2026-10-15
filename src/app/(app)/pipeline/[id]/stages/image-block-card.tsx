@@ -78,8 +78,11 @@ function ImageBox({
   onFile: (file: File) => void;
 }) {
   const fileInput = useRef<HTMLInputElement>(null);
+  /* EVERY ACTION SITS ON THE IMAGE, bottom-left, whether there is a picture
+     yet or not (build session, 2026-10-15); Remove sits top-right. Pills that
+     read over any picture: white glass, the suggested route in ink. */
   const buttons = (
-    <div className={`flex flex-wrap gap-1.5 ${image ? "" : "justify-center"}`} role="group" aria-label={`Fill the ${name.toLowerCase()}`}>
+    <div className="flex flex-wrap gap-1.5" role="group" aria-label={`Fill the ${name.toLowerCase()}`}>
       {actions.map((action) => {
         const Icon = ROUTE_ICON[action.route];
         return (
@@ -87,53 +90,60 @@ function ImageBox({
             key={action.route}
             type="button"
             disabled={disabled}
-            title={action.suggested ? "Suggested" : undefined}
+            title={action.suggested ? `${action.label} (suggested)` : action.label}
+            aria-label={action.label}
             aria-pressed={action.suggested}
             onClick={action.route === "upload" ? () => fileInput.current?.click() : action.onClick}
-            className={`inline-flex items-center gap-1.5 rounded-full px-3 py-2 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:shadow-[var(--shadow-focus)] disabled:cursor-not-allowed disabled:opacity-40 ${
-              action.suggested ? "bg-ink text-surface" : "bg-surface text-ink-2 hover:bg-deep"
+            className={`${ON_IMAGE} transition-colors focus-visible:outline-none focus-visible:shadow-[var(--shadow-focus)] disabled:cursor-not-allowed disabled:opacity-60 ${
+              action.suggested ? "!bg-ink !text-surface" : "hover:bg-surface"
             }`}
           >
             <Icon aria-hidden className="size-3.5" />
-            {action.busy ? `${action.label}…` : action.label}
+            {/* Icons only on a phone, where four labelled pills cover the picture. */}
+            <span className={action.busy ? "" : "hidden sm:inline"}>{action.busy ? `${action.label}…` : action.label}</span>
           </button>
         );
       })}
     </div>
   );
   const removeButton = onRemove && (
-    <button type="button" disabled={disabled} onClick={onRemove} className={`${ON_IMAGE} transition-colors hover:text-danger-ink disabled:opacity-40`}>
+    <button type="button" disabled={disabled} onClick={onRemove} className={`${ON_IMAGE} transition-colors hover:text-danger-ink disabled:opacity-60`}>
       <Trash2 aria-hidden className="size-3.5" />
       {removeBusy ? "Removing…" : removeLabel}
     </button>
   );
   const workingLabel = (
-    <p className="inline-flex items-center gap-2 text-sm text-ink-2" role="status">
-      <LoaderCircle aria-hidden className="size-4 animate-spin motion-reduce:animate-none" />
+    <p className={ON_IMAGE} role="status">
+      <LoaderCircle aria-hidden className="size-3.5 animate-spin motion-reduce:animate-none" />
       Adding a picture…
     </p>
   );
+  const below = Boolean(prompt || children || note);
 
   return (
-    <figure className="not-prose my-8 overflow-hidden rounded-2xl bg-sunken" aria-label={name} {...dataAttrs}>
-      <div className="relative">
+    <figure className="not-prose my-8" aria-label={name} {...dataAttrs}>
+      <div className="relative overflow-hidden rounded-2xl bg-sunken">
         {image ? (
           // eslint-disable-next-line @next/next/no-img-element -- a stored image served by the app's own route
           <img src={image.url} alt={alt} className="block h-auto w-full bg-white" />
         ) : (
-          <div className={`grid min-h-52 place-items-center px-6 py-8 ${onRemove ? "pt-14" : ""}`}>{working ? workingLabel : buttons}</div>
+          // The empty picture: the same layer, waiting to be filled.
+          <div className="aspect-[16/9] w-full" />
         )}
         {removeButton && <span className="absolute right-3 top-3">{removeButton}</span>}
+        <div className="absolute bottom-3 left-3 right-3">{working ? workingLabel : buttons}</div>
       </div>
-      {image && <div className="px-4 pt-3">{working ? workingLabel : buttons}</div>}
-      {prompt}
-      {children && <div className="space-y-2 px-4 pt-3 text-sm text-ink-2">{children}</div>}
-      {note && (
-        <p role="status" className="px-4 pt-3 text-xs text-ink-2">
-          {note}
-        </p>
+      {below && (
+        <div className="mt-3 space-y-2 text-sm text-ink-2">
+          {prompt}
+          {children}
+          {note && (
+            <p role="status" className="text-xs">
+              {note}
+            </p>
+          )}
+        </div>
       )}
-      <div className="h-4" />
       <input
         ref={fileInput}
         type="file"
@@ -399,7 +409,7 @@ function BlockField({
             (event.target as HTMLInputElement).blur();
           }
         }}
-        className="cs-input h-9 rounded-lg bg-surface text-sm font-normal text-ink"
+        className="cs-input h-9 rounded-lg bg-sunken text-sm font-normal text-ink"
       />
     </label>
   );
@@ -410,7 +420,7 @@ function PromptRow({ onGenerate, onCancel }: { onGenerate: (prompt: string) => v
   const [prompt, setPrompt] = useState("");
   return (
     <form
-      className="flex flex-col gap-2 px-4 pt-3 sm:flex-row sm:items-center"
+      className="flex flex-col gap-2 sm:flex-row sm:items-center"
       onSubmit={(event) => {
         event.preventDefault();
         onGenerate(prompt);
@@ -422,7 +432,7 @@ function PromptRow({ onGenerate, onCancel }: { onGenerate: (prompt: string) => v
         onChange={(event) => setPrompt(event.target.value)}
         placeholder="Describe the picture, or leave empty to write it from the article"
         aria-label="Describe the picture to generate"
-        className="cs-input h-9 flex-1 rounded-lg bg-surface text-sm"
+        className="cs-input h-9 flex-1 rounded-lg bg-sunken text-sm"
       />
       <div className="flex gap-2">
         <button type="submit" className="cs-btn h-9 px-3 text-sm">
