@@ -58,10 +58,16 @@ export default async function LoginPage({
         aria-labelledby="signin-title"
         className="w-full max-w-[26rem] rounded-2xl border border-line bg-surface p-6 sm:p-8"
       >
-        {/* The wordmark, then heading and deck — the rail carries the same
-            word over the same name. It takes the place of the flat mark and
-            the "Designally" eyebrow together: the word says both. */}
-        <Wordmark className="w-[150px]" />
+        {/* THE WORDMARK GETS ITS OWN ZONE. Set in the stack, a heavy caps
+            word over the hero title read as a second heading. Here it heads
+            the plate on a strip bled to the plate's edges over a hairline:
+            the brand is who is asking, the title and the button below are
+            the task. At 112 its caps stand about half the title's. It takes
+            the place of the flat mark and the "Designally" eyebrow together:
+            the word says both. */}
+        <div className="-mx-6 -mt-6 border-b border-line px-6 py-5 sm:-mx-8 sm:-mt-8 sm:px-8">
+          <Wordmark className="w-[112px]" />
+        </div>
         <h1
           id="signin-title"
           className="mt-7 font-heading text-[length:var(--text-hero)] font-medium leading-[1.1] tracking-[-0.02em] text-ink"
