@@ -17,6 +17,8 @@ import { splitSourcesSection } from "@/lib/outline";
 import { deDash } from "@/lib/text";
 import { getModels, runText } from "@/lib/anthropic";
 import type { PublishToHubResult } from "./views";
+import { blockImagesOf, holdAsDraftReasons } from "./image-blocks";
+import { hubBodyFromBlocks, takeSummaryLine } from "@/lib/direction/image-blocks";
 
 export type { PublishToHubResult } from "./views";
 
@@ -81,7 +83,7 @@ function extensionOf(storagePath: string): string {
 
 export async function publishToHubCore(
   projectId: string,
-  status: "draft" | "published" = "draft",
+  requestedStatus: "draft" | "published" = "draft",
 ): Promise<PublishToHubResult> {
   if (!isHubConfigured()) {
     throw new Error(
@@ -105,13 +107,32 @@ export async function publishToHubCore(
 
   // The generator writes the title as a leading H1; the Hub renders the title
   // separately, so strip it to avoid the title showing twice.
-  const bodyMarkdown = stripTitleHeading(draftMarkdown, title);
+  let bodyMarkdown = stripTitleHeading(draftMarkdown, title);
+
+  /* PREVIEW OF THE PROPOSED DIRECTION. An empty image block, or any picture
+     whose rights are unknown or pending, holds the article as a Hub DRAFT
+     whatever was asked for: it must not go live until a person has dealt with
+     it. The one-line summary under the title is the Hub's summary, so it
+     leaves the body. */
+  const labels = loaded.project.inputs.labels;
+  const heldAsDraft = labels ? holdAsDraftReasons(loaded) : [];
+  const status: "draft" | "published" = heldAsDraft.length > 0 ? "draft" : requestedStatus;
+  let directionSummary: string | null = null;
+  if (labels) {
+    const taken = takeSummaryLine(bodyMarkdown);
+    directionSummary = taken.summary;
+    bodyMarkdown = taken.markdown;
+  }
 
   // Reuse the dek cached when the Publish stage opened; generate on the fly only
   // if it's somehow missing. Optional — never block publishing on it.
   // Cleaned here too: a dek cached before the fix still carries its dash.
   const cachedDek = loaded.project.inputs.publishDek?.trim();
-  const summary = cachedDek ? deDash(cachedDek) : await generateDek(projectId, title, bodyMarkdown);
+  const summary = directionSummary
+    ? deDash(directionSummary)
+    : cachedDek
+      ? deDash(cachedDek)
+      : await generateDek(projectId, title, bodyMarkdown);
 
   // Put the cover in the Hub's media library. Optional: a failed or absent
   // image never blocks publishing — it comes back as a warning instead.
@@ -193,7 +214,40 @@ export async function publishToHubCore(
      data. Left in the body it would arrive as Lexical paragraphs — the same
      links, but unlistable and duplicated under a heading the Hub renders
      again. Inline links inside the prose are untouched. */
-  const { body: bodyWithoutSources, references } = splitSourcesSection(bodyMarkdown);
+  const { body: bodySansSources, references } = splitSourcesSection(bodyMarkdown);
+
+  /* PREVIEW OF THE PROPOSED DIRECTION: each filled image block goes into the
+     Hub's media library the way the cover does (by URL, or uploaded when the
+     file is local), then takes its block's place as the Hub's own upload
+     placeholder. A block whose picture cannot be placed is left out and said
+     so; publishing is never failed for it. */
+  let bodyWithoutSources = bodySansSources;
+  const bodyImageWarnings: string[] = [];
+  if (labels) {
+    const filled = blockImagesOf(loaded.images);
+    const placed: Record<string, { mediaId: number; caption: string; credit?: string | null }> = {};
+    for (const [blockId, image] of Object.entries(filled)) {
+      const row = loaded.images.find((entry) => entry.id === image.id);
+      if (!row) continue;
+      try {
+        const fetchable = (await fetchableImageUrls([row.storagePath])).get(row.storagePath);
+        const alt = image.alt || image.caption || title;
+        const filename = `${projectId}-${blockId}.${extensionOf(row.storagePath)}`;
+        let mediaId: number;
+        if (fetchable) {
+          mediaId = await uploadImageToHubByUrl({ url: fetchable, filename, alt });
+        } else {
+          const resolved = await resolveImage(row.storagePath);
+          if (!resolved) throw new Error("the file could not be read");
+          mediaId = await uploadImageToHub({ data: resolved.data, filename, mimeType: resolved.mimeType, alt });
+        }
+        placed[blockId] = { mediaId, caption: image.caption, credit: image.credit };
+      } catch (cause) {
+        bodyImageWarnings.push(`${blockId}: ${(cause instanceof Error ? cause.message : String(cause)).slice(0, 160)}`);
+      }
+    }
+    bodyWithoutSources = hubBodyFromBlocks(bodySansSources, placed);
+  }
 
   /* A PHOTOGRAPH IS CREDITED WHERE THE ARTICLE CREDITS EVERYTHING ELSE. When the
      cover is someone's picture rather than a generated one, the line the editor
@@ -266,11 +320,22 @@ export async function publishToHubCore(
    * after the body returns. So the caller refreshes instead, in its own
    * request with its own budget.
    */
+  /* The existing stage shows `coverWarning`; the preview's reasons travel in
+     it too, so the editor sees why "published" became a draft. */
+  const notes = [
+    coverWarning,
+    heldAsDraft.length && requestedStatus === "published"
+      ? `Saved as a Hub draft, not published: ${heldAsDraft.join(" ")}`
+      : undefined,
+    bodyImageWarnings.length ? `Some body images were left out: ${bodyImageWarnings.join("; ")}` : undefined,
+  ].filter(Boolean);
   return {
     url: result.absoluteUrl,
     adminUrl: result.adminUrl,
     slug: result.slug,
     status: result.status,
-    ...(coverWarning ? { coverWarning } : {}),
+    ...(notes.length ? { coverWarning: notes.join(" ") } : {}),
+    ...(heldAsDraft.length ? { heldAsDraft } : {}),
+    ...(bodyImageWarnings.length ? { bodyImageWarnings } : {}),
   };
 }

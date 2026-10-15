@@ -19,6 +19,7 @@ import { generateImagePromptCore } from "@/lib/pipeline/image-prompt";
 import { findReferenceImagesCore, generateImagesCore } from "@/lib/pipeline/images";
 import { coverFromReferenceCore } from "@/lib/pipeline/sourced-cover";
 import { publishToHubCore } from "@/lib/pipeline/publish";
+import { autoFillBlocksCore } from "@/lib/pipeline/image-blocks";
 import { imageGenerationOptions } from "@/lib/image/registry";
 import { isHubConfigured } from "@/lib/hub";
 import { isAnthropicConfigured } from "@/lib/anthropic";
@@ -630,6 +631,16 @@ async function advance(run: ClaimedRun, routine: Routine) {
       next = "publish";
       break;
     case "publish":
+      /* PREVIEW OF THE PROPOSED DIRECTION, for a labelled article only (no
+         routine creates one on this branch): fill the Generate and Draw blocks
+         the draft placed. Find and Upload blocks stay empty for a person, and
+         publishing then holds the article as a Hub draft. */
+      if (await hasLabels(projectId)) {
+        const filled = await autoFillBlocksCore(projectId);
+        if (filled.waiting.length || filled.failed.length) {
+          console.info(`[direction] routine run ${run.id}: ${JSON.stringify(filled)}`);
+        }
+      }
       await publishToHubCore(projectId, routine.hubStatus);
       next = "done";
       break;
@@ -988,4 +999,11 @@ export async function recentRuns(limit = 20, routineId?: string) {
     .where(routineId ? eq(routineRuns.routineId, routineId) : undefined)
     .orderBy(desc(routineRuns.startedAt))
     .limit(limit);
+}
+
+/** PREVIEW ONLY: whether a run's article was created with labels (proposed article direction). */
+async function hasLabels(projectId: string): Promise<boolean> {
+  const db = await getDb();
+  const [row] = await db.select({ inputs: projects.inputs }).from(projects).where(eq(projects.id, projectId)).limit(1);
+  return Boolean(row?.inputs.labels);
 }

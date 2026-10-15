@@ -8,6 +8,8 @@ import type {
 } from "@/db/schema";
 import { articlePrompt } from "@/lib/article-template";
 import { pillarForDirection } from "@/lib/content-pillars";
+import type { ArticleLabels } from "@/lib/direction/labels";
+import { directionArticleTemplate } from "./direction";
 
 export const LAYERS_VERSION = "layers@1.0.0";
 
@@ -52,8 +54,16 @@ export function buildBrandLayer(brand: Brand): string {
 export function buildFormatLayer(
   articleRules: FormatRules,
   category: Category | null,
-  language: Language
+  language: Language,
+  labels?: ArticleLabels
 ): string {
+  /* A labelled article (preview of the proposed direction) is written to the
+     proposal's template INSTEAD of the saved one: its shape, lengths and image
+     blocks contradict the 1,200–2,000 word template, and the old pillar lines
+     below would contradict its labels. */
+  if (labels) {
+    return ["## Article template", directionArticleTemplate(labels), "", buildLanguageLayer(language)].join("\n");
+  }
   const lines: string[] = [
     "## Article template",
     articlePrompt(articleRules),

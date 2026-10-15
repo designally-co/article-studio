@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { and, eq, desc, asc, inArray, sql } from "drizzle-orm";
+import { and, eq, desc, asc, inArray, isNull, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import { projects, categories, images, drafts } from "@/db/schema";
 import { leadingTitle } from "@/lib/markdown";
@@ -113,7 +113,8 @@ export default async function LibraryPage({
         storagePath: images.storagePath,
       })
       .from(images)
-      .where(inArray(images.projectId, projectIds))
+      // Not an in-body image block's picture (it has a slot): those are never the cover.
+      .where(and(inArray(images.projectId, projectIds), isNull(images.position)))
       .orderBy(desc(images.createdAt));
     const byId = new Map(imageRows.map((image) => [image.id, image]));
     for (const image of imageRows) {

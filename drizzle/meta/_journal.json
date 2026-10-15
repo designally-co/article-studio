@@ -218,6 +218,13 @@
       "when": 1790100000000,
       "tag": "0030_tables_in_schema_studio",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1790200000000,
+      "tag": "0031_direction_image_blocks",
+      "breakpoints": true
     }
   ]
 }

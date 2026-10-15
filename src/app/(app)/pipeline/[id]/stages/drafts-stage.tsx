@@ -9,6 +9,11 @@ import { ArrowRight, Eye, Pencil, X } from "lucide-react";
 import { SHEET_CLEARANCE, StageAction, StageSheet } from "./stage-mobile";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { deleteRevisionAction, goToFinalizeAction, saveDraftContentAction } from "../actions";
+import { clearBlockAction } from "../block-actions";
+import { ImageBlockCard } from "./image-block-card";
+import { parseImageBlockBody, removeImageBlock } from "@/lib/direction/image-blocks";
+import type { LabelType } from "@/lib/direction/labels";
+import type { BlockImageView } from "@/lib/pipeline/views";
 
 const SUGGESTIONS = [
   "Make the introduction shorter",
@@ -32,12 +37,17 @@ export function DraftsStage({
   refinements,
   targetLength,
   anthropicReady,
+  labelsType,
+  blockImages: initialBlockImages = {},
 }: {
   projectId: string;
   drafts: { id: string; variationNo: number; contentMd: string; isSelected: boolean }[];
   refinements: Revision[];
   targetLength: string;
   anthropicReady: boolean;
+  /** PREVIEW ONLY: the article's type when it has labels (proposed direction); its image blocks render as cards. */
+  labelsType?: LabelType;
+  blockImages?: Record<string, BlockImageView>;
 }) {
   const existing = drafts.find((draft) => draft.isSelected) ?? drafts[0];
   const [draft, setDraft] = useState<DraftView>({
@@ -57,6 +67,52 @@ export function DraftsStage({
   const autoStarted = useRef(false);
   const editSnapshotSaved = useRef(false);
   const editBase = useRef(existing?.contentMd ?? "");
+  const [blockImages, setBlockImages] = useState(initialBlockImages);
+
+  /* PREVIEW ONLY: removing a block takes it out of the draft (saved at once,
+     with the version before kept) and drops the picture that filled it. */
+  function removeBlock(blockId: string) {
+    if (!draft.id) return;
+    const before = draft.contentMd;
+    const next = removeImageBlock(before, blockId);
+    setDraft((current) => ({ ...current, contentMd: next }));
+    setBlockImages((current) => {
+      const copy = { ...current };
+      delete copy[blockId];
+      return copy;
+    });
+    addLocalRevision("Version before removing an image block", before);
+    const draftId = draft.id;
+    startTransition(async () => {
+      await saveDraftContentAction(draftId, next, true, `Removed image block ${blockId}`);
+      await clearBlockAction(projectId, blockId);
+    });
+  }
+
+  const renderImageBlock = labelsType
+    ? (raw: string) => {
+        const block = parseImageBlockBody(raw);
+        return (
+          <ImageBlockCard
+            key={block.id}
+            projectId={projectId}
+            block={block}
+            type={labelsType}
+            image={blockImages[block.id] ?? null}
+            locked={dirty || draft.streaming}
+            onImage={(blockId, image) =>
+              setBlockImages((current) => {
+                const copy = { ...current };
+                if (image) copy[blockId] = image;
+                else delete copy[blockId];
+                return copy;
+              })
+            }
+            onRemove={removeBlock}
+          />
+        );
+      }
+    : undefined;
 
   /**
    * Add a version, unless we already hold that exact text.
@@ -444,7 +500,7 @@ export function DraftsStage({
                  utilities setting the same side resolve by emission order, not
                  by the order they are written in. */
               <div className="min-h-[38rem] max-w-[74ch] px-5 pb-16 pt-5 sm:px-8 sm:pb-24 sm:pt-8">
-                {draft.contentMd ? <Markdown>{draft.contentMd}</Markdown> : <p className="py-20 text-center text-sm text-ink-2">Preparing the article…</p>}
+                {draft.contentMd ? <Markdown renderImageBlock={draft.streaming ? undefined : renderImageBlock}>{draft.contentMd}</Markdown> : <p className="py-20 text-center text-sm text-ink-2">Preparing the article…</p>}
                 {(draft.streaming || revising) && <span className="ml-0.5 inline-block h-4 w-1.5 animate-pulse rounded-full bg-accent align-text-bottom motion-reduce:animate-none" />}
               </div>
             )}

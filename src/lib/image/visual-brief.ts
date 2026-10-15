@@ -18,6 +18,9 @@
  * been answered with the same desk.
  */
 
+import type { ArticleLabels } from "@/lib/direction/labels";
+import { PILLAR_IMAGE_STYLE } from "@/lib/direction/image-routing";
+
 /** What the finished image is: a real scene photographed, or an idea drawn by an illustrator. */
 export const IMAGE_DIRECTION = {
   name: "Grounded Editorial",
@@ -54,6 +57,27 @@ export const IMAGE_RULES = [
   "AN ILLUSTRATION is drawn by a human editorial illustrator for a design magazine: one clear, specific idea taken from the article — never a stock symbol; a limited palette of two to four colours; a visible hand — risograph grain, screen-print overlap, gouache, pencil, cut paper or collage; simple confident shapes. Not 3D, not a glossy vector, not gradients, not isometric clip art, not stock vector people, not anime or a children's book. Brief it as an art director briefs an illustrator: the idea, what is drawn, the technique, the palette.",
   "The colours the subject would really have, or the illustration's own limited palette. No neon, no gradient backdrop, no teal-and-orange grade, and never the publisher's house colours.",
 ] as const;
+
+/** The rule that sets the creative-studio world. Replaced per pillar below. */
+const STUDIO_WORLD_RULE = 2;
+
+/**
+ * The direction for a labelled article (preview of the proposed direction):
+ * the PILLAR picks the style. Creative Insights keeps the current look; the
+ * other pillars drop the hard-coded creative-studio world, which put a design
+ * studio behind every AI story.
+ */
+export function imageDirectionFor(labels?: ArticleLabels | null): { name: string; summary: string } {
+  if (!labels || labels.pillar === "creative_insights") return IMAGE_DIRECTION;
+  const style = PILLAR_IMAGE_STYLE[labels.pillar];
+  return { name: style.name, summary: style.summary };
+}
+
+export function imageRulesFor(labels?: ArticleLabels | null): readonly string[] {
+  if (!labels || labels.pillar === "creative_insights") return IMAGE_RULES;
+  const style = PILLAR_IMAGE_STYLE[labels.pillar];
+  return IMAGE_RULES.map((rule, index) => (index === STUDIO_WORLD_RULE ? style.worldRule : rule));
+}
 
 /** Never write more prompts than the providers will render in one go. */
 export const MAX_PROMPT_VARIANTS = 4;

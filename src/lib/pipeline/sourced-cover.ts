@@ -9,6 +9,7 @@ import { COVER_MIN_WIDTH, COVER_UPSCALE_MIN_WIDTH } from "@/lib/image/reference-
 import { upscaleForCover } from "@/lib/image/upscale";
 import { isSamePicture, pictureHash } from "@/lib/image/picture-hash";
 import type { GeneratedImageView } from "./views";
+import { rightsForOrigin } from "@/lib/direction/image-routing";
 
 /**
  * A real photograph as the article's cover, instead of a generated one.
@@ -276,9 +277,21 @@ export async function coverFromReferenceCore(
     saved = { storagePath, width: size?.width ?? reference.width, height: size?.height ?? reference.height };
   }
 
+  /* Preview of the proposed direction: log where the cover came from and who
+     may use it. Only on a labelled article; the current behaviour writes nothing new. */
+  const [owner] = await db.select({ inputs: projects.inputs }).from(projects).where(eq(projects.id, projectId)).limit(1);
+  const directionLog = owner?.inputs.labels
+    ? {
+        route: "cover-find",
+        rights: rightsForOrigin(reference.origin),
+        credit: draftCreditLabel(reference),
+        sourceUrl: reference.sourceUrl,
+      }
+    : {};
   const [row] = await db
     .insert(images)
     .values({
+      ...directionLog,
       projectId,
       provider: SOURCE_PROVIDER,
       model: reference.origin,

@@ -1,4 +1,5 @@
 import "server-only";
+import type { ImageFit } from "@/lib/direction/image-routing";
 import { splitSourcesSection } from "@/lib/outline";
 import { publicFetch, readCapped } from "@/lib/net/public-fetch";
 import { getModels, runJson, type PromptImage } from "@/lib/anthropic";
@@ -400,6 +401,7 @@ async function judgeSourcePictures(
     title: string;
     angle?: string;
     opening: string;
+    fit?: ImageFit | null;
   },
 ): Promise<Verdict[] | null> {
   const previews = await Promise.all(candidates.map(previewOf));
@@ -426,6 +428,7 @@ async function judgeSourcePictures(
         angle: article.angle,
         opening: article.opening,
         pages: visible.map((entry) => `${entry.candidate.sourceName} — ${entry.candidate.sourceUrl}`),
+        fit: article.fit,
       }),
       images: visible.map((entry) => entry.preview),
       schema: {
@@ -500,10 +503,16 @@ export async function findArticleSourceImages(
     angle?: string;
     /** Other articles' covers, by `pictureHash`: not offered again. */
     avoid?: string[];
+    /** Preview of the proposed direction: what this picture is for. */
+    fit?: ImageFit | null;
+    /** These pages instead of the ones the article cites (an image block's own source URL). */
+    pages?: { label: string; url: string }[];
+    /** Filled in with what the judge saw and turned down, for the trial log. */
+    stats?: { judged: number; rejected: number };
   },
 ): Promise<ReferenceCandidate[]> {
   if (options.limit <= 0) return [];
-  const pages = citedPages(markdown)
+  const pages = (options.pages ?? citedPages(markdown))
     .filter((page) => !options.exclude.has(page.url) && !isFrontPage(page.url))
     .slice(0, MAX_PAGES);
   if (pages.length === 0) return [];
@@ -540,8 +549,13 @@ export async function findArticleSourceImages(
         .replace(/^#\s+.+$/m, "")
         .trim()
         .slice(0, 1500),
+      fit: options.fit,
     },
   );
+  if (options.stats && verdicts) {
+    options.stats.judged += verdicts.length;
+    options.stats.rejected += verdicts.filter((verdict) => verdict === "reject").length;
+  }
 
   const ruled = verdicts
     ? dealt

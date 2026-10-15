@@ -3,6 +3,8 @@
  * Versioned so prompts can be tuned without touching call sites.
  */
 import { EDITORIAL_SCOPE_TEXT } from "@/lib/designally-strategy";
+import { DIRECTION_SCOPE_RULES } from "./direction";
+import type { ArticleLabels } from "@/lib/direction/labels";
 
 export const SYSTEM_VERSION = "system@1.3.0";
 
@@ -41,6 +43,13 @@ Serve the intent of the article's pillar: Design explains the principles behind 
 
 export const SYSTEM_PROMPT = SYSTEM_BASE + EDITORIAL_SCOPE_RULES;
 
+/**
+ * The system prompt for an article written the proposed way (preview only):
+ * the same role, with the proposal's four pillars IN PLACE OF the current four.
+ * Both scope blocks in one prompt would contradict each other.
+ */
+export const DIRECTION_SYSTEM_PROMPT = SYSTEM_BASE + DIRECTION_SCOPE_RULES;
+
 export const BRAND_INSIGHT_MODE_RULES = `## Article mode: Brand Insight
 Start from the selected audience's lived business reality before mentioning Designally or presenting a solution. Use the selected Moment of Change, audience segment, message pillar, and objective as the article's strategic foundation.`;
 
@@ -73,3 +82,24 @@ export const IMAGE_SYSTEM_PROMPT = `You are an art director for an independent d
 You are not designing for the publication's own brand. The subject of the article is the subject of the image. Do not apply a house palette, a house style, or the publisher's colours, and do not place the publisher's logo or mark in the frame — those are added afterwards if at all. Each article gets the palette, materials, and light that belong to it.
 
 Specify images the way a photo editor briefs a shoot, or an art director briefs an illustrator: what is in frame, how it is composed, what it is made of, how it is lit or drawn, and what it should make the reader feel. Be concrete. Never describe an image as "AI-generated", never ask for a style that imitates stock photography, and never request readable text, real logos, or counterfeit interfaces.`;
+
+
+/**
+ * The image system prompt for a labelled article (preview of the proposed
+ * direction). Creative Insights keeps the current one. The other pillars lose
+ * its "photographs of the work and the studios that make it" framing, which
+ * pulled a design studio into pictures for AI news and tutorials.
+ */
+export function imageSystemPromptFor(labels?: ArticleLabels | null): string {
+  if (!labels || labels.pillar === "creative_insights") return IMAGE_SYSTEM_PROMPT;
+  const subject =
+    labels.pillar === "all_things_ai"
+      ? "articles about AI for people who make or buy creative work: the AI task, the tool or its real output, shown honestly. Never a staged studio, never an invented interface"
+      : labels.pillar === "case_studies"
+        ? "case studies of real, named projects: only the work itself, as its makers published it"
+        : "guides and workflows: the real task being done or the result it produces";
+  return IMAGE_SYSTEM_PROMPT.replace(
+    /You commission and specify images for articles about [^.]*\./,
+    `You commission and specify images for ${subject}.`,
+  );
+}

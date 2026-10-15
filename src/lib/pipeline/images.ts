@@ -12,6 +12,8 @@ import { findRelatedReferences, type RelatedReferenceSearch } from "@/lib/image/
 import { MAX_FOUND_REFERENCES } from "@/lib/image/reference-policy";
 import { citedPages, findArticleSourceImages } from "@/lib/image/article-sources";
 import { coversInUse } from "./sourced-cover";
+import { logImageUsage } from "@/lib/cost";
+import { isCoverSourceAllowed, type ImageFit } from "@/lib/direction/image-routing";
 import type {
   GeneratedImageView,
   GenerationRunResult,
@@ -142,31 +144,54 @@ export async function findReferenceImagesCore(
      failure here costs the check, not the search. */
   const avoid = (await coversInUse(projectId).catch(() => [])).map((cover) => cover.hash);
 
+  /* PREVIEW OF THE PROPOSED DIRECTION: the TYPE picks where a cover may come
+     from (a case study: its cited pages only, never a stock library), and the
+     judges are told the pillar and type so they turn down misfits. */
+  const labels = loaded.project.inputs.labels;
+  const coverFit: ImageFit | null = labels
+    ? { pillar: labels.pillar, type: labels.type, role: "cover", narrowers: [labels.topic, ...labels.keywords] }
+    : null;
+  const useCitedPages = !labels || isCoverSourceAllowed(labels.type, "cited_pages");
+  const useLibrary = !labels || isCoverSourceAllowed(labels.type, "library");
+
   /* TWO PLACES AT ONCE. The pages the article cites come first: their lead
      image is usually the work itself, photographed by the studio that made it,
      which is what a good design publication runs. The photo libraries fill
      what is left. Side by side because both live inside the same sixty
      seconds; a page already attached as a reference is not fetched again. */
   const [fromSources, search] = await Promise.all([
-    findArticleSourceImages(article, {
-      limit: room,
-      exclude: new Set(existing.map((row) => row.sourceUrl).filter((url): url is string => !!url)),
-      projectId,
-      title,
-      angle: loaded.project.selectedTopic?.angle,
-      avoid,
-    }).catch(() => []),
-    findRelatedReferences({
-      projectId,
-      title,
-      angle: loaded.project.selectedTopic?.angle,
-      // The opening says what the article is about; the whole of it is not needed
-      // to plan a photo search, and every token is inside the same sixty seconds.
-      article: article.slice(0, 3000),
-      seedQuery: options?.query,
-      limit: room,
-      avoid,
-    }),
+    useCitedPages
+      ? findArticleSourceImages(article, {
+          limit: room,
+          exclude: new Set(existing.map((row) => row.sourceUrl).filter((url): url is string => !!url)),
+          projectId,
+          title,
+          angle: loaded.project.selectedTopic?.angle,
+          avoid,
+          fit: coverFit,
+        }).catch(() => [])
+      : Promise.resolve([]),
+    useLibrary
+      ? findRelatedReferences({
+          projectId,
+          title,
+          angle: loaded.project.selectedTopic?.angle,
+          // The opening says what the article is about; the whole of it is not needed
+          // to plan a photo search, and every token is inside the same sixty seconds.
+          article: article.slice(0, 3000),
+          seedQuery: options?.query,
+          limit: room,
+          avoid,
+          fit: coverFit,
+        })
+      : Promise.resolve<RelatedReferenceSearch>({
+          candidates: [],
+          queries: [],
+          found: 0,
+          rejected: 0,
+          planned: true,
+          judged: false,
+        }),
   ]);
   const candidates = (
     options?.oneOfEach
@@ -299,6 +324,13 @@ export async function generateImagesCore(
   const db = await getDb();
   const [project] = await db.select().from(projects).where(eq(projects.id, projectId)).limit(1);
   if (!project) throw new Error("Project not found.");
+  /* PREVIEW OF THE PROPOSED DIRECTION: a type whose cover may not be generated
+     (a case study: real project images only) is refused here, so no path to
+     the generator gets round it. */
+  const labels = project.inputs.labels;
+  if (labels && !isCoverSourceAllowed(labels.type, "generate")) {
+    throw new Error("A case study never uses a generated image. Use a picture from the studio's own project page.");
+  }
   const references: ReferenceImageInput[] = [];
   for (const id of referenceIds) {
     const [row] = await db
@@ -336,6 +368,14 @@ export async function generateImagesCore(
       : new Error("No images were returned.");
   }
   const failedCount = generations.filter((result) => result.status === "rejected").length;
+  // Fal's answers carry no cost; log the indicative price so a trial's spend is complete.
+  await logImageUsage({
+    projectId,
+    stage: "image_generate",
+    model: provider.model,
+    count: generated.length,
+    unitPrice: provider.indicativePricePerImage,
+  }).catch(() => 0);
   const failureReason =
     rejection && rejection.status === "rejected"
       ? rejection.reason instanceof Error
@@ -379,6 +419,8 @@ export async function generateImagesCore(
         variationNo,
         referenceIds,
         storagePath,
+        // Logged for the proposed direction's covers; null otherwise.
+        ...(labels ? { route: "cover-generate", rights: "own" as const } : {}),
       })
       .returning();
     out.push({

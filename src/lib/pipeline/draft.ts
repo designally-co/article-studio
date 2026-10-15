@@ -7,6 +7,8 @@ import { getModels, buildSystemLayers, streamText, isAnthropicConfigured } from 
 import { draftTask } from "@/prompts/tasks";
 import { extractOutlineSources } from "@/lib/outline";
 import { deDash } from "@/lib/text";
+import { directionDraftTask } from "@/prompts/direction";
+import { normalizeImageBlocks } from "@/lib/direction/image-blocks";
 
 /**
  * Writing the article, with no session check.
@@ -49,7 +51,12 @@ export async function generateDraftCore(
   const { text } = await streamText({
     model: drafting,
     system: buildSystemLayers(ctx),
-    task: draftTask({ outlineMarkdown: outline, longForm }),
+    // A labelled article (preview of the proposed direction) has its own task:
+    // the current one forbids nothing the proposal needs, but it says nothing
+    // of its shape or its image blocks either.
+    task: ctx.inputs.labels
+      ? directionDraftTask({ outlineMarkdown: outline, labels: ctx.inputs.labels })
+      : draftTask({ outlineMarkdown: outline, longForm }),
     maxTokens,
     onDelta: (d) => onDelta?.(d),
     projectId,
@@ -72,7 +79,21 @@ export async function generateDraftCore(
   if (sources.length && !alreadyHasSection) {
     const block = "\n\n## Sources\n\n" + sources.map((s) => `- [${s.name}](${s.url})`).join("\n");
     onDelta?.(block);
-    finalText = text + block;
+    /* The proposed shape ends Key takeaway → Sources → optional Free resource,
+       so in a labelled article the list goes in front of a Free resource
+       section rather than after it. */
+    const freeResource = ctx.inputs.labels ? /\n#{2}\s*Free resource\b/i.exec(text) : null;
+    finalText = freeResource
+      ? `${text.slice(0, freeResource.index).trimEnd()}${block}\n${text.slice(freeResource.index)}`
+      : text + block;
+  }
+
+  /* Hold the image blocks to what the type allows (count, role, route, ids).
+     A route the type forbids is refused here, in code, not only in the prompt. */
+  if (ctx.inputs.labels) {
+    const normalized = normalizeImageBlocks(finalText, ctx.inputs.labels.type);
+    finalText = normalized.markdown;
+    for (const note of normalized.notes) console.info(`[direction] draft ${projectId}: ${note}`);
   }
 
   // Strip em dashes from the saved article (belt-and-suspenders with the

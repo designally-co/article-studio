@@ -7,6 +7,8 @@ import { deDash } from "@/lib/text";
 import { isAnthropicConfigured } from "@/lib/anthropic";
 import { isHubConfigured } from "@/lib/hub";
 import { imageGenerationOptions } from "@/lib/image/registry";
+import { blockImagesOf } from "@/lib/pipeline/image-blocks";
+import { LENGTH_BY_TYPE } from "@/lib/direction/labels";
 import { Stepper } from "@/components/stepper";
 import { TopBlur } from "@/components/page-bar";
 import { PrepareDraftStage } from "./stages/prepare-draft-stage";
@@ -160,8 +162,14 @@ export default async function PipelinePage({
               userMessage: revision.userMessage,
               resultMd: revision.resultMd,
             }))}
-            targetLength={loaded.articleRules.length}
+            targetLength={
+              loaded.project.inputs.labels
+                ? `${LENGTH_BY_TYPE[loaded.project.inputs.labels.type].min}–${LENGTH_BY_TYPE[loaded.project.inputs.labels.type].max} words`
+                : loaded.articleRules.length
+            }
             anthropicReady={anthropicReady}
+            labelsType={loaded.project.inputs.labels?.type}
+            blockImages={blockImagesOf(loaded.images)}
           />
         )}
         {current === 6 && (
@@ -184,7 +192,7 @@ export default async function PipelinePage({
             coverCredits={loaded.project.inputs.coverCredits ?? {}}
             initialDek={loaded.project.inputs.publishDek ? deDash(loaded.project.inputs.publishDek) : null}
             published={published}
-            images={loaded.images.map((img) => ({
+            images={loaded.images.filter((img) => img.position === null).map((img) => ({
               id: img.id,
               url: `/api/images/${img.id}`,
               provider: img.provider,
