@@ -1764,3 +1764,25 @@ main:has(.cs-create-page),
       minmax(calc(var(--rail-w) + var(--rail-gap)), 1fr);
   }
 }
+
+/* PREVIEW ONLY: the empty picture's gentle float and the spark's twinkle. */
+@media (prefers-reduced-motion: no-preference) {
+  .cs-empty-picture-front {
+    animation: cs-empty-float 4.8s ease-in-out infinite;
+    transform-box: fill-box;
+    transform-origin: center;
+  }
+  .cs-empty-picture-spark {
+    animation: cs-empty-spark 2.4s ease-in-out infinite;
+    transform-box: fill-box;
+    transform-origin: center;
+  }
+}
+@keyframes cs-empty-float {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  50% { transform: translateY(-3px) rotate(-1deg); }
+}
+@keyframes cs-empty-spark {
+  0%, 100% { transform: scale(1); opacity: 0.9; }
+  50% { transform: scale(0.7); opacity: 0.5; }
+}

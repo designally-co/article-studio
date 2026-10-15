@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useTransition, type ReactNode } from "react";
+import { useId, useRef, useState, useTransition, type ReactNode } from "react";
 import { Brush, ImagePlus, LoaderCircle, Search, Sparkles, Trash2 } from "lucide-react";
 import type { ImageBlock } from "@/lib/direction/image-blocks";
 import { BLOCK_ROUTES, effectiveRoute, type BlockRoute } from "@/lib/direction/image-routing";
@@ -396,13 +396,54 @@ function PromptRow({ onGenerate, onCancel }: { onGenerate: (prompt: string) => v
   );
 }
 
-/** The mark of a picture not there yet: a frame with a hill and a sun, drawn quietly. */
+/**
+ * The picture not there yet (build session, 2026-10-15: "use interesting
+ * graphic for the empty image stage"): three prints stacked at an angle, the
+ * front one a hill under an orange sun, framed by a printer's crop marks, the
+ * proofing marks of the studio. Drawn in the app's own tokens, so it follows
+ * the theme, and it floats gently unless motion is reduced.
+ */
 function EmptyPicture() {
+  const clip = useId();
+  const line = "var(--color-line-strong)";
+  const ink = "var(--color-ink-3)";
   return (
-    <svg aria-hidden viewBox="0 0 96 72" className="-mt-6 h-16 w-auto text-ink-3 opacity-50" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="4" y="4" width="88" height="64" rx="10" />
-      <circle cx="68" cy="24" r="7" />
-      <path d="M4 56 30 32l20 18 12-10 30 24" />
+    <svg aria-hidden viewBox="0 0 220 150" className="cs-empty-picture -mt-8 h-28 w-auto sm:h-32" fill="none" strokeLinecap="round" strokeLinejoin="round">
+      {/* the prints behind */}
+      <g transform="rotate(-9 110 78)">
+        <rect x="58" y="30" width="104" height="80" rx="6" fill="var(--color-surface)" stroke={line} strokeWidth="1.5" />
+      </g>
+      <g transform="rotate(7 110 78)">
+        <rect x="58" y="30" width="104" height="80" rx="6" fill="var(--color-surface)" stroke={line} strokeWidth="1.5" />
+      </g>
+      {/* the front print */}
+      <g className="cs-empty-picture-front">
+        <rect x="58" y="32" width="104" height="80" rx="6" fill="var(--color-surface)" stroke={ink} strokeWidth="1.5" />
+        <clipPath id={clip}>
+          <rect x="66" y="40" width="88" height="56" rx="3" />
+        </clipPath>
+        <rect x="66" y="40" width="88" height="56" rx="3" fill="var(--color-sunken)" />
+        <g clipPath={`url(#${clip})`}>
+          <circle cx="134" cy="56" r="8" fill="var(--color-accent)" opacity="0.9" />
+          <path d="M58 104 L88 66 L104 80 L116 70 L162 104 Z" fill="var(--color-accent-soft)" stroke={ink} strokeWidth="1.25" />
+        </g>
+        <path d="M74 104 H118" stroke={line} strokeWidth="2" />
+      </g>
+      {/* crop marks */}
+      <g stroke={ink} strokeWidth="1.25">
+        <path d="M46 26 H38 M50 22 V14" />
+        <path d="M174 26 H182 M170 22 V14" />
+        <path d="M46 124 H38 M50 128 V136" />
+        <path d="M174 124 H182 M170 128 V136" />
+      </g>
+      {/* a spark: the picture on its way */}
+      <path
+        className="cs-empty-picture-spark"
+        d="M186 52 Q188 60 196 62 Q188 64 186 72 Q184 64 176 62 Q184 60 186 52 Z"
+        fill="var(--color-accent)"
+      />
+      <circle cx="30" cy="70" r="2.5" fill={line} />
+      <circle cx="200" cy="96" r="2" fill={line} />
     </svg>
   );
 }
