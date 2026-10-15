@@ -27,6 +27,23 @@ const ROUTE_ICON = { find: Search, generate: Sparkles, draw: Brush, upload: Imag
 const ON_IMAGE =
   "inline-flex items-center gap-1.5 rounded-full bg-surface/90 px-3 py-1.5 text-xs font-medium text-ink shadow-[var(--shadow-card)] backdrop-blur-sm";
 
+/** An action under way on a picture, for the box to act out. */
+type Activity = "find" | "generate" | "draw" | "upload" | "auto" | null;
+
+const ACTIVITY_LABEL: Record<Exclude<Activity, null>, string> = {
+  find: "Finding a picture…",
+  generate: "Generating a picture…",
+  draw: "Drawing a figure…",
+  upload: "Uploading…",
+  auto: "Adding a picture…",
+};
+
+/** The activity for a box: the first, automatic fill, else the button being run. */
+function activityOf(autoWorking: boolean, busy: string | null): Activity {
+  if (autoWorking) return "auto";
+  return busy === "find" || busy === "generate" || busy === "draw" || busy === "upload" ? busy : null;
+}
+
 type BoxAction = {
   route: BlockRoute;
   label: string;
@@ -51,7 +68,7 @@ function ImageBox({
   alt,
   actions,
   disabled,
-  working,
+  activity,
   onRemove,
   removeLabel,
   removeBusy,
@@ -67,7 +84,8 @@ function ImageBox({
   actions: BoxAction[];
   disabled: boolean;
   /** Shown in place of the buttons while the first, automatic fill works on it. */
-  working: boolean;
+  /** What is being done to the picture right now, animated in the box; null when nothing is. */
+  activity: Activity;
   onRemove?: () => void;
   removeLabel: string;
   removeBusy: boolean;
@@ -112,11 +130,24 @@ function ImageBox({
       {removeBusy ? "Removing…" : removeLabel}
     </button>
   );
+  const working = activity === "auto";
   const workingLabel = (
-    <p className={ON_IMAGE} role="status">
+    <p className={ON_IMAGE}>
       <LoaderCircle aria-hidden className="size-3.5 animate-spin motion-reduce:animate-none" />
-      Adding a picture…
+      {ACTIVITY_LABEL.auto}
     </p>
+  );
+  /* WHILE AN ACTION RUNS, THE PICTURE SAYS WHICH (build session, 2026-10-15):
+     the illustration acts it out, over the old picture if there is one. */
+  const acting = activity && (
+    <div className="pointer-events-none absolute inset-0 grid place-items-center bg-sunken/85 backdrop-blur-[2px]">
+      <div className="flex flex-col items-center gap-2">
+        <EmptyPicture activity={activity} />
+        <p className="-mt-4 text-xs font-medium text-ink-2" role="status">
+          {ACTIVITY_LABEL[activity]}
+        </p>
+      </div>
+    </div>
   );
   const below = Boolean(prompt || children || note);
 
@@ -129,9 +160,10 @@ function ImageBox({
         ) : (
           // The empty picture: the same layer, waiting to be filled, with a quiet mark of a picture.
           <div className="grid aspect-[16/9] w-full place-items-center">
-            <EmptyPicture />
+            <EmptyPicture activity={null} />
           </div>
         )}
+        {acting}
         {removeButton && <span className="absolute right-3 top-3">{removeButton}</span>}
         <div className="absolute bottom-3 left-3 right-3">{working ? workingLabel : buttons}</div>
       </div>
@@ -253,7 +285,7 @@ export function ImageBlockCard({
       alt={image?.alt || block.alt}
       actions={actions}
       disabled={pending || locked || autoWorking}
-      working={autoWorking}
+      activity={activityOf(autoWorking, busy)}
       onRemove={remove}
       removeLabel={image ? "Remove" : "Remove slot"}
       removeBusy={busy === "remove"}
@@ -352,7 +384,7 @@ export function CoverCard({
       alt={image?.alt || "The article's cover"}
       actions={actions}
       disabled={pending || locked || autoWorking}
-      working={autoWorking}
+      activity={activityOf(autoWorking, busy)}
       onRemove={image ? remove : undefined}
       removeLabel="Remove"
       removeBusy={busy === "remove"}
@@ -400,48 +432,93 @@ function PromptRow({ onGenerate, onCancel }: { onGenerate: (prompt: string) => v
  * The picture not there yet (build session, 2026-10-15: "use interesting
  * graphic for the empty image stage"): three prints stacked at an angle, the
  * front one a hill under an orange sun, framed by a printer's crop marks, the
- * proofing marks of the studio. Drawn in the app's own tokens, so it follows
- * the theme, and it floats gently unless motion is reduced.
+ * proofing marks of the studio. Drawn in the app's own tokens.
+ *
+ * It also acts out what is happening ("add the related motion animation for
+ * finding the image and also for other actions"): a loupe sweeps the prints
+ * while finding, sparks and a shine while generating, the hill drawing itself
+ * while drawing, the print rising into place while uploading. Every motion is
+ * in CSS and stops when the person has asked for reduced motion.
  */
-function EmptyPicture() {
+function EmptyPicture({ activity }: { activity: Activity }) {
   const clip = useId();
+  const shine = useId();
   const line = "var(--color-line-strong)";
   const ink = "var(--color-ink-3)";
+  const mode = activity ?? "idle";
   return (
-    <svg aria-hidden viewBox="0 0 220 150" className="cs-empty-picture -mt-8 h-28 w-auto sm:h-32" fill="none" strokeLinecap="round" strokeLinejoin="round">
+    <svg
+      aria-hidden
+      viewBox="0 0 220 150"
+      className="cs-empty-picture -mt-8 h-28 w-auto sm:h-32"
+      data-activity={mode}
+      fill="none"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <defs>
+        <clipPath id={clip}>
+          <rect x="66" y="40" width="88" height="56" rx="3" />
+        </clipPath>
+        <linearGradient id={shine} x1="0" x2="1" y1="0" y2="0">
+          <stop offset="0" stopColor="#fff" stopOpacity="0" />
+          <stop offset="0.5" stopColor="#fff" stopOpacity="0.85" />
+          <stop offset="1" stopColor="#fff" stopOpacity="0" />
+        </linearGradient>
+      </defs>
       {/* the prints behind */}
-      <g transform="rotate(-9 110 78)">
+      <g className="cs-ep-back-a" transform="rotate(-9 110 78)">
         <rect x="58" y="30" width="104" height="80" rx="6" fill="var(--color-surface)" stroke={line} strokeWidth="1.5" />
       </g>
-      <g transform="rotate(7 110 78)">
+      <g className="cs-ep-back-b" transform="rotate(7 110 78)">
         <rect x="58" y="30" width="104" height="80" rx="6" fill="var(--color-surface)" stroke={line} strokeWidth="1.5" />
       </g>
       {/* the front print */}
       <g className="cs-empty-picture-front">
         <rect x="58" y="32" width="104" height="80" rx="6" fill="var(--color-surface)" stroke={ink} strokeWidth="1.5" />
-        <clipPath id={clip}>
-          <rect x="66" y="40" width="88" height="56" rx="3" />
-        </clipPath>
         <rect x="66" y="40" width="88" height="56" rx="3" fill="var(--color-sunken)" />
         <g clipPath={`url(#${clip})`}>
-          <circle cx="134" cy="56" r="8" fill="var(--color-accent)" opacity="0.9" />
-          <path d="M58 104 L88 66 L104 80 L116 70 L162 104 Z" fill="var(--color-accent-soft)" stroke={ink} strokeWidth="1.25" />
+          <circle className="cs-ep-sun" cx="134" cy="56" r="8" fill="var(--color-accent)" opacity="0.9" />
+          <path className="cs-ep-hill-fill" d="M58 104 L88 66 L104 80 L116 70 L162 104 Z" fill="var(--color-accent-soft)" />
+          <path className="cs-ep-hill" pathLength={1} d="M58 104 L88 66 L104 80 L116 70 L162 104" stroke={ink} strokeWidth="1.25" />
+          {(mode === "generate" || mode === "auto") && (
+            <rect className="cs-ep-shine" x="40" y="36" width="40" height="64" fill={`url(#${shine})`} transform="skewX(-18)" />
+          )}
         </g>
         <path d="M74 104 H118" stroke={line} strokeWidth="2" />
       </g>
       {/* crop marks */}
-      <g stroke={ink} strokeWidth="1.25">
+      <g className="cs-ep-crop" stroke={ink} strokeWidth="1.25">
         <path d="M46 26 H38 M50 22 V14" />
         <path d="M174 26 H182 M170 22 V14" />
         <path d="M46 124 H38 M50 128 V136" />
         <path d="M174 124 H182 M170 128 V136" />
       </g>
       {/* a spark: the picture on its way */}
-      <path
-        className="cs-empty-picture-spark"
-        d="M186 52 Q188 60 196 62 Q188 64 186 72 Q184 64 176 62 Q184 60 186 52 Z"
-        fill="var(--color-accent)"
-      />
+      <path className="cs-empty-picture-spark" d="M186 52 Q188 60 196 62 Q188 64 186 72 Q184 64 176 62 Q184 60 186 52 Z" fill="var(--color-accent)" />
+      {mode === "generate" && (
+        <>
+          <path className="cs-ep-spark-2" d="M40 40 Q41 45 46 46 Q41 47 40 52 Q39 47 34 46 Q39 45 40 40 Z" fill="var(--color-accent)" />
+          <path className="cs-ep-spark-3" d="M172 112 Q173 116 177 117 Q173 118 172 122 Q171 118 167 117 Q171 116 172 112 Z" fill="var(--color-accent)" />
+        </>
+      )}
+      {mode === "find" && (
+        <g className="cs-ep-loupe">
+          <circle cx="110" cy="70" r="13" fill="var(--color-surface)" fillOpacity="0.55" stroke="var(--color-ink-2)" strokeWidth="2.5" />
+          <path d="M119.5 79.5 L130 90" stroke="var(--color-ink-2)" strokeWidth="4" />
+        </g>
+      )}
+      {mode === "draw" && (
+        <g className="cs-ep-pen">
+          <path d="M0 0 L5 -14 L11 -12 L6 2 Z" fill="var(--color-ink-2)" />
+          <path d="M0 0 L2 -5 L5 -4 Z" fill="var(--color-accent)" />
+        </g>
+      )}
+      {mode === "upload" && (
+        <g className="cs-ep-arrow" stroke="var(--color-accent)" strokeWidth="2.5">
+          <path d="M110 22 V4 M102 12 L110 4 L118 12" />
+        </g>
+      )}
       <circle cx="30" cy="70" r="2.5" fill={line} />
       <circle cx="200" cy="96" r="2" fill={line} />
     </svg>
