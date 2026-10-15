@@ -16,6 +16,7 @@ import StarterKit from "@tiptap/starter-kit";
 import { Markdown } from "@tiptap/markdown";
 import {
   Bold,
+  Heading1,
   Heading2,
   Heading3,
   ImagePlus,
@@ -191,6 +192,7 @@ function Toolbar({ editor, addImage, disabled }: { editor: Editor; addImage?: Ad
     editor,
     selector: ({ editor: e }) => ({
       paragraph: e.isActive("paragraph") && !e.isActive("bulletList") && !e.isActive("orderedList") && !e.isActive("blockquote"),
+      h1: e.isActive("heading", { level: 1 }),
       h2: e.isActive("heading", { level: 2 }),
       h3: e.isActive("heading", { level: 3 }),
       bold: e.isActive("bold"),
@@ -279,6 +281,9 @@ function Toolbar({ editor, addImage, disabled }: { editor: Editor; addImage?: Ad
     >
       <div className="flex items-center gap-0.5 overflow-x-auto">
         {button({ label: "Normal text", icon: <Pilcrow aria-hidden className={icon} />, active: state.paragraph, onClick: () => editor.chain().focus().setParagraph().run() })}
+        {/* THE TITLE HAS A STYLE OF ITS OWN, so a title deleted by accident can
+            be typed again and made the title (build session, 2026-10-15). */}
+        {button({ label: "Title", icon: <Heading1 aria-hidden className={icon} />, active: state.h1, onClick: () => editor.chain().focus().toggleHeading({ level: 1 }).run() })}
         {button({ label: "Section heading", icon: <Heading2 aria-hidden className={icon} />, active: state.h2, onClick: () => editor.chain().focus().toggleHeading({ level: 2 }).run() })}
         {button({ label: "Sub-heading", icon: <Heading3 aria-hidden className={icon} />, active: state.h3, onClick: () => editor.chain().focus().toggleHeading({ level: 3 }).run() })}
         {divider}
