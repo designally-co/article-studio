@@ -44,3 +44,20 @@ Before you finish a build session, write a note for each decision the session ma
 - Name the update in the pull request, so the reviewer checks it.
 - Facts that live outside the code (a Portainer or Vercel setting, a release that went live) cannot be seen by the Brain. When the session learns one that matters later, write it in a decision note or in the right doc listed under `docs:` in `brain.yaml`.
 - The Brain does not have to wait for the night. After the change is merged into `main`, a person can load it at once: in `designally-co/designally-brain`, open Actions, then **Brain loader**, then **Run workflow** on `main` with mode **load** (the default, `dry-run`, writes nothing). Search by meaning catches up a few minutes later. The AI cannot start it (GitHub refuses with 403). So when a session ends with a merged change the Brain should know about, tell the person they can run it now.
+
+# Build for the future ecosystem
+
+Designally plans a brand ecosystem: one product for Designally and for clients, where each app becomes a module that reads the client's brand from one place (Brand Core) and shares sign-in, credits and a back office. It is a future plan, not for now (Buk, 2026-10-15). Do not build any part of it (workspaces, credits, back office, marketplace, front door, job queue, a separate product database) unless the person asks. The plan: the `company-ecosystem-*` notes in `https://github.com/designally-co/designally-brain/tree/main/decisions`.
+
+But build today's changes in a way that supports it. In every change, choose the option that keeps these true when it costs little now:
+
+- Settings, not code: no new Designally-only values (brand, topics, audience, languages) written into code; keep them in settings or data.
+- No new "only one" assumptions where avoiding them costs nothing (one brand, one client). Do not add workspace columns yet.
+- Talk to other apps through their APIs, never by reading their tables.
+- Files in Cloudflare R2, never in the database.
+- Brand data stays structured (fields, not free text); the Brand Guideline Portal is its home.
+- Every AI call records its model, tokens and cost.
+- AI keys only in server secrets or admin-only settings; never in code or the browser.
+- Long AI work runs step by step where that is easy, so it can move to a queue later.
+
+When a change would make one of these harder later, say so plainly and ask the person before building.
