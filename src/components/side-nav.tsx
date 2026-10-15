@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 
-import { FlatMark } from "@/app/mark";
+import { FlatMark, Wordmark } from "@/app/mark";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import gsap from "gsap";
@@ -343,10 +343,10 @@ export function SideNav({
             </button>
           ) : (
             <>
-              <FlatMark size={32} />
+              <FlatMark size={32} decorative />
               <div className="min-w-0">
-                <p className="text-xs font-semibold uppercase tracking-[var(--tracking-caps)] text-ink-3">
-                  Designally
+                <p className="flex h-4 items-center">
+                  <Wordmark className="w-[94px]" />
                 </p>
                 <p className="font-heading text-base font-medium tracking-tight text-ink">
                   Article Studio
@@ -408,10 +408,10 @@ function MobileBrand() {
        one — which mattered more once the drawer went full screen and became
        the only thing on the display. Same gap, same sizes, same eyebrow. */
     <div className="flex min-w-0 items-center gap-3">
-      <FlatMark size={32} />
+      <FlatMark size={32} decorative />
       <div className="min-w-0">
-        <p className="text-xs font-semibold uppercase tracking-[var(--tracking-caps)] text-ink-3">
-          Designally
+        <p className="flex h-4 items-center">
+          <Wordmark className="w-[94px]" />
         </p>
         <p className="truncate font-heading text-base font-medium tracking-tight text-ink">
           Article Studio

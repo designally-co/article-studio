@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 
-import { FlatMark } from "../mark";
+import { Wordmark } from "../mark";
 import { Button } from "@/components/ui/button";
 import { getSessionUser } from "@/lib/auth";
 import { signIn, hasGoogleCredentials } from "@/auth";
@@ -58,19 +58,13 @@ export default async function LoginPage({
         aria-labelledby="signin-title"
         className="w-full max-w-[26rem] rounded-2xl border border-line bg-surface p-6 sm:p-8"
       >
-        {/* The flat mark, the one the rail carries: the D in ink, the full
-            stop in the accent. The disc version is heavier than anything
-            else on this plate, and the plate is already the object. */}
-        <FlatMark size={36} />
-
-        {/* Eyebrow, heading, deck — the rail's account block and every page
-            heading are built from these same three lines. */}
-        <p className="mt-7 text-xs font-semibold uppercase tracking-[var(--tracking-caps)] text-ink-3">
-          Designally
-        </p>
+        {/* The wordmark, then heading and deck — the rail carries the same
+            word over the same name. It takes the place of the flat mark and
+            the "Designally" eyebrow together: the word says both. */}
+        <Wordmark className="w-[150px]" />
         <h1
           id="signin-title"
-          className="mt-1.5 font-heading text-[length:var(--text-hero)] font-medium leading-[1.1] tracking-[-0.02em] text-ink"
+          className="mt-7 font-heading text-[length:var(--text-hero)] font-medium leading-[1.1] tracking-[-0.02em] text-ink"
         >
           Article Studio
         </h1>
