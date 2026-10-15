@@ -127,8 +127,10 @@ function ImageBox({
           // eslint-disable-next-line @next/next/no-img-element -- a stored image served by the app's own route
           <img src={image.url} alt={alt} className="block h-auto w-full bg-white" />
         ) : (
-          // The empty picture: the same layer, waiting to be filled.
-          <div className="aspect-[16/9] w-full" />
+          // The empty picture: the same layer, waiting to be filled, with a quiet mark of a picture.
+          <div className="grid aspect-[16/9] w-full place-items-center">
+            <EmptyPicture />
+          </div>
         )}
         {removeButton && <span className="absolute right-3 top-3">{removeButton}</span>}
         <div className="absolute bottom-3 left-3 right-3">{working ? workingLabel : buttons}</div>
@@ -175,7 +177,6 @@ export function ImageBlockCard({
   locked,
   onImage,
   onRemove,
-  onEdit,
   autoWorking = false,
 }: {
   /** The first, automatic fill is working on this block right now. */
@@ -188,8 +189,6 @@ export function ImageBlockCard({
   locked: boolean;
   onImage: (blockId: string, image: BlockImageView | null) => void;
   onRemove: (blockId: string) => void;
-  /** Inside the editor: change the block's caption or purpose. */
-  onEdit?: (block: ImageBlock) => void;
 }) {
   const suggested = effectiveRoute(type, block.suggestedRoute);
   const [busy, setBusy] = useState<BlockRoute | "remove" | null>(null);
@@ -262,17 +261,7 @@ export function ImageBlockCard({
       note={note}
       prompt={promptOpen ? <PromptRow onCancel={() => setPromptOpen(false)} onGenerate={(prompt) => fill("generate", prompt)} /> : null}
     >
-      {onEdit ? (
-        /* Purpose only: what Find, Generate and Draw work from. Images carry no
-           caption (build session, 2026-10-15). */
-        <BlockField
-          key={`purpose:${block.purpose}`}
-          label="Purpose"
-          value={block.purpose}
-          placeholder="What the picture should show"
-          onCommit={(purpose) => onEdit({ ...block, purpose, alt: block.alt || purpose })}
-        />
-      ) : null}
+
       {image?.credit && (
         <p className="text-xs">
           {image.sourceUrl ? (
@@ -376,45 +365,6 @@ export function CoverCard({
   );
 }
 
-/** One editable line of a block: kept locally while typed, saved when left. */
-function BlockField({
-  label,
-  value,
-  placeholder,
-  onCommit,
-}: {
-  label: string;
-  value: string;
-  placeholder: string;
-  onCommit: (value: string) => void;
-}) {
-  // Reset from outside by the parent's `key`, not an effect.
-  const [draft, setDraft] = useState(value);
-  const commit = () => {
-    const next = draft.replace(/\s+/g, " ").trim();
-    if (next !== value) onCommit(next);
-  };
-  return (
-    <label className="flex flex-col gap-1 text-xs font-medium text-ink-2">
-      {label}
-      <input
-        value={draft}
-        placeholder={placeholder}
-        onChange={(event) => setDraft(event.target.value)}
-        onBlur={commit}
-        onKeyDown={(event) => {
-          if (event.key === "Enter") {
-            event.preventDefault();
-            commit();
-            (event.target as HTMLInputElement).blur();
-          }
-        }}
-        className="cs-input h-9 rounded-lg bg-sunken text-sm font-normal text-ink"
-      />
-    </label>
-  );
-}
-
 /** Generate's own box: the editor's words for the picture, or nothing to have them written. */
 function PromptRow({ onGenerate, onCancel }: { onGenerate: (prompt: string) => void; onCancel: () => void }) {
   const [prompt, setPrompt] = useState("");
@@ -443,5 +393,16 @@ function PromptRow({ onGenerate, onCancel }: { onGenerate: (prompt: string) => v
         </button>
       </div>
     </form>
+  );
+}
+
+/** The mark of a picture not there yet: a frame with a hill and a sun, drawn quietly. */
+function EmptyPicture() {
+  return (
+    <svg aria-hidden viewBox="0 0 96 72" className="-mt-6 h-16 w-auto text-ink-3 opacity-50" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="4" y="4" width="88" height="64" rx="10" />
+      <circle cx="68" cy="24" r="7" />
+      <path d="M4 56 30 32l20 18 12-10 30 24" />
+    </svg>
   );
 }

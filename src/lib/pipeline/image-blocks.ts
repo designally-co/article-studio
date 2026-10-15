@@ -19,7 +19,7 @@ import type { ReferenceCandidate } from "@/lib/image/reference-sources";
 import { imageSystemPromptFor } from "@/prompts/system";
 import { blockImagePromptTask, drawFigureTask } from "@/prompts/direction";
 import { finishImagePrompt } from "@/lib/image/visual-brief";
-import { parseImageBlocks, slotOf, type LocatedImageBlock } from "@/lib/direction/image-blocks";
+import { parseImageBlocks, purposeFromContext, slotOf, type LocatedImageBlock } from "@/lib/direction/image-blocks";
 import {
   AUTO_FILL_ROUTES,
   RIGHTS_HOLD_AS_DRAFT,
@@ -76,8 +76,10 @@ async function loadBlock(projectId: string, blockId: string): Promise<BlockConte
   if (!labels) throw new Error("This article has no labels, so it has no image blocks.");
   const draft = loaded.drafts.find((d) => d.isSelected) ?? loaded.drafts[0];
   const article = draft?.contentMd ?? "";
-  const block = parseImageBlocks(article).find((entry) => entry.id === blockId);
-  if (!block) throw new Error(`There is no image block "${blockId}" in the draft. Save the draft and try again.`);
+  const found = parseImageBlocks(article).find((entry) => entry.id === blockId);
+  if (!found) throw new Error(`There is no image block "${blockId}" in the draft. Save the draft and try again.`);
+  // No stated purpose (a slot the editor added): read it from the article around it.
+  const block = found.purpose.trim() ? found : { ...found, purpose: purposeFromContext(article, found) };
   const slot = slotOf(block.id);
   if (!slot) throw new Error(`Image block "${blockId}" has no slot (use img-1 to img-3).`);
   const title = article.match(/^#\s+(.+)$/m)?.[1]?.trim() || loaded.project.selectedTopic?.title || "Untitled";

@@ -1752,3 +1752,15 @@ main:has(.cs-create-page),
   min-height: 24rem;
   caret-color: var(--accent);
 }
+
+/* PREVIEW ONLY: room for the editor's vertical toolbar in the column before
+   the article (the same tracks as RAIL_GRID, with the first one never narrower
+   than the toolbar and its gap). Unlayered, so it wins over the utility. */
+@media (min-width: 64rem) {
+  .rail-grid-with-tools {
+    grid-template-columns:
+      minmax(5rem, 1fr)
+      minmax(0, var(--rail-content, 52rem))
+      minmax(calc(var(--rail-w) + var(--rail-gap)), 1fr);
+  }
+}

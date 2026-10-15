@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import {
   EditorContent,
   Node,
@@ -116,7 +117,14 @@ export function ArticleEditor({
   addImage,
   disabled = false,
   before,
+  railHost,
 }: {
+  /**
+   * Where the toolbar stands as a vertical bar on a wide screen: an element in
+   * the page's empty left column, before the article box (build session,
+   * 2026-10-15). Below that width the toolbar runs across the top of the box.
+   */
+  railHost?: HTMLElement | null;
   /** Shown above the article inside the box, under the toolbar (the cover). */
   before?: ReactNode;
   markdown: string;
@@ -169,7 +177,12 @@ export function ArticleEditor({
 
   return (
     <BlockRenderer.Provider value={renderImageBlock ?? null}>
-      {editor && <Toolbar editor={editor} addImage={addImage} disabled={disabled} />}
+      {editor && (
+        <div className={railHost ? "lg:hidden" : undefined}>
+          <Toolbar editor={editor} addImage={addImage} disabled={disabled} orientation="horizontal" />
+        </div>
+      )}
+      {editor && railHost && createPortal(<Toolbar editor={editor} addImage={addImage} disabled={disabled} orientation="vertical" />, railHost)}
       {/* CENTRED, WITH THE SAME SPACE EACH SIDE (build session, 2026-10-15): a
           readable measure in the middle of the box on a wide screen, the box's
           own margin on a narrow one. The cover and the cards share it. */}
@@ -183,7 +196,18 @@ export function ArticleEditor({
   );
 }
 
-function Toolbar({ editor, addImage, disabled }: { editor: Editor; addImage?: AddImagePolicy; disabled: boolean }) {
+function Toolbar({
+  editor,
+  addImage,
+  disabled,
+  orientation,
+}: {
+  editor: Editor;
+  addImage?: AddImagePolicy;
+  disabled: boolean;
+  orientation: "horizontal" | "vertical";
+}) {
+  const vertical = orientation === "vertical";
   const state = useEditorState({
     editor,
     selector: ({ editor: e }) => ({
@@ -266,7 +290,11 @@ function Toolbar({ editor, addImage, disabled }: { editor: Editor; addImage?: Ad
       {props.text && <span>{props.text}</span>}
     </button>
   );
-  const divider = <span aria-hidden className="mx-1 h-5 w-px shrink-0 bg-line" />;
+  const divider = vertical ? (
+    <span aria-hidden className="my-1 h-px w-5 shrink-0 bg-line" />
+  ) : (
+    <span aria-hidden className="mx-1 h-5 w-px shrink-0 bg-line" />
+  );
   const icon = "size-4";
   const tag = "text-[13px] font-semibold leading-none tracking-tight";
 
@@ -274,9 +302,16 @@ function Toolbar({ editor, addImage, disabled }: { editor: Editor; addImage?: Ad
     <div
       role="toolbar"
       aria-label="Format the article"
-      className="sticky top-12 z-[5] rounded-t-2xl border-b border-line bg-surface/95 px-2 py-1.5 backdrop-blur-sm lg:top-14 sm:px-4"
+      aria-orientation={orientation}
+      className={
+        vertical
+          ? /* A bar of its own beside the article, held in view while scrolling. */
+            "relative sticky top-20 rounded-2xl border border-line bg-surface p-1.5 shadow-[var(--shadow-card)]"
+          : /* Across the top of the box, inset from its rounded corner. */
+            "sticky top-12 z-[5] rounded-t-2xl border-b border-line bg-surface/95 px-4 py-2.5 backdrop-blur-sm sm:px-6"
+      }
     >
-      <div className="flex items-center gap-0.5 overflow-x-auto">
+      <div className={vertical ? "flex flex-col items-center gap-0.5" : "flex items-center gap-0.5 overflow-x-auto"}>
         {/* IN THE ORDER OF THE HIERARCHY, H1 to P, each named by its plain tag
             (build session, 2026-10-15): the pilcrow and subscript icons were not
             understood. H1 is the title, so one deleted by accident can be typed
@@ -296,10 +331,10 @@ function Toolbar({ editor, addImage, disabled }: { editor: Editor; addImage?: Ad
         {divider}
         {button({ label: "Undo", icon: <Undo2 aria-hidden className={icon} />, disabled: !state.canUndo, onClick: () => editor.chain().focus().undo().run() })}
         {button({ label: "Redo", icon: <Redo2 aria-hidden className={icon} />, disabled: !state.canRedo, onClick: () => editor.chain().focus().redo().run() })}
-        <span className="ml-auto pl-2" />
+        {vertical ? divider : <span className="ml-auto pl-2" />}
         {button({
           label: "Add image",
-          text: "Add image",
+          text: vertical ? undefined : "Add image",
           icon: <ImagePlus aria-hidden className={icon} />,
           disabled: Boolean(imageReason),
           title: imageReason ?? "Add an image slot after the paragraph the cursor is in",
@@ -308,15 +343,19 @@ function Toolbar({ editor, addImage, disabled }: { editor: Editor; addImage?: Ad
       </div>
       {linkOpen && (
         <form
-          className="mt-1.5 flex items-center gap-2 pb-1"
+          className={
+            vertical
+              ? "absolute left-full top-0 z-10 ml-2 flex w-96 items-center gap-2 rounded-2xl border border-line bg-surface p-2 shadow-[var(--shadow-pop)]"
+              : "mt-1.5 flex items-center gap-2 pb-1"
+          }
           onSubmit={(event) => {
             event.preventDefault();
             applyLink();
           }}
         >
-          <label className="sr-only" htmlFor="article-link-url">Link address</label>
+          <label className="sr-only" htmlFor={`article-link-url-${orientation}`}>Link address</label>
           <input
-            id="article-link-url"
+            id={`article-link-url-${orientation}`}
             autoFocus
             value={linkUrl}
             onChange={(event) => setLinkUrl(event.target.value)}

@@ -300,3 +300,27 @@ export function nextFreeBlockId(used: Iterable<string>): string | null {
   }
   return null;
 }
+
+/**
+ * What a picture should show when its slot states no purpose: the section it
+ * sits in and the paragraph just before it. An editor no longer writes a
+ * purpose (build session, 2026-10-15), so a slot they add is read from the
+ * article around it.
+ */
+export function purposeFromContext(markdown: string, block: { start: number }): string {
+  const before = markdown.slice(0, block.start).replace(/```image[\s\S]*?```/g, "");
+  const plain = (text: string) =>
+    text
+      .replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1")
+      .replace(/[*_`>#]/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+  const heading = [...before.matchAll(/^#{1,3}\s+(.+)$/gm)].pop()?.[1] ?? "";
+  const paragraphs = before
+    .split(/\n\s*\n/)
+    .map((part) => part.trim())
+    .filter((part) => part && !/^#{1,6}\s/.test(part));
+  const paragraph = paragraphs.pop() ?? "";
+  const parts = [heading && `Section: ${plain(heading)}.`, paragraph && plain(paragraph)].filter(Boolean);
+  return parts.join(" ").slice(0, 400);
+}

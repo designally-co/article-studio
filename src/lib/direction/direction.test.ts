@@ -273,3 +273,10 @@ test("a new block takes the first free slot and round-trips", async () => {
   assert.equal(parseImageBlockBody(body).caption, "C");
   assert.equal(parseImageBlockBody(body).id, "img-2");
 });
+
+test("a slot with no purpose is read from the article around it", async () => {
+  const { purposeFromContext, parseImageBlocks } = await import("./image-blocks");
+  const md = "# T\n\n## How the grid works\n\nSet **twelve** columns in the [panel](https://x.com).\n\n```image\nid: img-1\nrole: step\npurpose: \nalt: \nsuggested_route: draw\nsearch_hint: \n```\n";
+  const block = parseImageBlocks(md)[0];
+  assert.equal(purposeFromContext(md, block), "Section: How the grid works. Set twelve columns in the panel.");
+});

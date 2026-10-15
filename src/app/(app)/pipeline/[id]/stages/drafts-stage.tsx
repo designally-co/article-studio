@@ -80,6 +80,7 @@ export function DraftsStage({
   const editBase = useRef(existing?.contentMd ?? "");
   const [blockImages, setBlockImages] = useState(initialBlockImages);
   const [cover, setCover] = useState(initialCover);
+  const [toolbarHost, setToolbarHost] = useState<HTMLDivElement | null>(null);
   const twoSteps = Boolean(labelsType);
   /* THE FIRST PICTURES COME WITH THE DRAFT (build session, 2026-10-15). Once
      the draft exists, the cover and every image block are filled by the type's
@@ -192,7 +193,6 @@ export function DraftsStage({
             /* Inside the editor the slot is a node: it is removed there and the
                article saves itself. In the read-only view the Markdown is edited. */
             onRemove={controls ? () => controls.remove() : removeBlock}
-            onEdit={controls ? (next) => controls.update(serializeImageBlockBody(next)) : undefined}
           />
         );
       }
@@ -510,12 +510,20 @@ export function DraftsStage({
           drawer opened, which meant asking to see revisions reflowed the whole
           page and narrowed the article you were reading. Revisions drop INTO
           the rail now; the layout does not move. */}
-      <div className={`${RAIL_GRID} lg:[--rail-content:52rem] ${SHEET_CLEARANCE}`}>
+      <div className={`${RAIL_GRID} lg:[--rail-content:52rem] ${SHEET_CLEARANCE} ${editorMode ? "rail-grid-with-tools" : ""}`}>
         {/* Tray and plate. The article is the product on this screen, so it is
             seated as an object rather than boxed by a header and footer strip. */}
         {/* The plate and the line that reports on it. Wrapped, because the grid
             gives this column one child and the status now sits outside the
             article rather than in its header. */}
+        {/* PREVIEW ONLY: the editor's vertical toolbar stands here, in the empty
+            column before the article, on a wide screen. */}
+        {editorMode && (
+          <div
+            ref={setToolbarHost}
+            className="hidden lg:col-start-1 lg:row-start-1 lg:block lg:self-stretch lg:justify-self-end lg:pr-4"
+          />
+        )}
         <div className={RAIL_CONTENT}>
         <article className="cs-bezel motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-4 motion-safe:duration-500">
           {/* The editor's toolbar sticks while scrolling, which a clipping box would stop. */}
@@ -573,6 +581,7 @@ export function DraftsStage({
                  toolbar across the top, the cover and the article under it, the
                  same margin on both sides (build session, 2026-10-15). */
               <ArticleEditor
+                railHost={toolbarHost}
                 markdown={draft.contentMd}
                 renderImageBlock={renderImageBlock}
                 addImage={addImage}
