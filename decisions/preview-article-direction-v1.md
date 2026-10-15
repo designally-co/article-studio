@@ -5,7 +5,7 @@ decided: 2026-10-15
 author: ai
 sources:
   - Request in the build session, 2026-10-15 (branch preview/article-direction-v1; test of a proposal, not an approved direction)
-  - Build session, 2026-10-15 ("have the rights to use online images and give them credits in the resource section"; "no need to ask the user about the right")
+  - Build session, 2026-10-15 ("have the rights to use online images and give them credits in the resource section"; "no need to ask the user about the right"; "the cover image must be at draft stage too"; "just draft and publish steps")
   - src/lib/direction/labels.ts
   - src/lib/direction/image-routing.ts
   - src/lib/direction/image-blocks.ts
@@ -30,10 +30,11 @@ The proposal is built on the branch `preview/article-direction-v1` and is never 
 - Routes per type are one table (`TYPE_IMAGE_POLICY`). A case study never generates and never uses a stock library, for the cover as well as the body. Draw renders a model-written SVG to an image with sharp, so text in figures never comes from an image model.
 - At publish each filled block is uploaded with the Hub's existing `/api/media/from-url` and written as the Hub's own upload placeholder `![media:<id>]()` on its own line, with the caption as an italic line. Its credit ("Image courtesy of …", linked to the page it came from) is added to the article's References, as the cover's credit already is.
 - Rights are recorded automatically and the editor is never asked: online images (cited pages and photo libraries) are `licensed`, generated, drawn and uploaded pictures are `own`. An empty block sends the article as a Hub draft whatever was asked for; so would an image marked `unknown` or `permission_pending`, but nothing sets those now.
+- A labelled article has two steps, Draft and Publish. The cover is chosen in Draft, in a card above the article, by the type's cover route; the Image step is not shown.
 - Routines may fill only Generate and Draw blocks; no routine creates a labelled article on this branch.
 
 ## Why
 
-Designally has the rights to use online images and credits them in References, so the editor is not asked about rights (build session, 2026-10-15).
+Designally has the rights to use online images and credits them in References, so the editor is not asked about rights; and the cover belongs in the Draft stage, with only Draft and Publish as steps (build session, 2026-10-15).
 
 Keeping the labels in the project's JSON and switching on their presence lets the same code run the current and the proposed behaviour side by side, with no Hub change and no change to live routines (request in the build session, 2026-10-15). The upload placeholder was chosen because it was measured: Payload 3.86's `convertMarkdownToLexical`, which the Hub's from-markdown endpoint uses, turns `![media:42]()` alone on a line into an upload node, while a standard `![alt](url)` arrives as literal text, and a placeholder inside a sentence replaces the whole paragraph.
