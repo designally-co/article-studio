@@ -8,7 +8,8 @@ Source of the proposal: the request for this build session (2026-10-15), which q
 
 1. On Create, switch **New direction (preview)** on, type a topic, choose a direction, send. The model proposes labels; check them in the dialog and press **Create article**. With the switch off, everything is the current behaviour.
 2. The steps are **Draft** and **Publish** only. In Draft: the **cover** card at the top (Find, Generate, Upload, as the type allows) and an **image block card** in place for each body image (Find, Generate, Draw, Upload, Remove; the suggested route is dark; a route the type forbids is greyed out and says why).
-3. Publish. An empty block keeps the article as a Hub **draft**, with the reason shown.
+3. On the first arrival at Draft, a skeleton of the page shows, with one line saying what is happening, until the article is written and its first pictures are added; then the editor opens.
+4. Publish. An empty block keeps the article as a Hub **draft**, with the reason shown.
 
 Headless comparison of one subject (current vs proposed), on its own test database: `scripts/direction-trial.mts` (instructions at the top of the file). Unit tests: `npm test`.
 
@@ -17,14 +18,14 @@ Headless comparison of one subject (current vs proposed), on its own test databa
 | Check | Result |
 |---|---|
 | Typecheck, lint, `next build`, `next start` | Pass. Pages load signed in (local session on the embedded PGlite test database). |
-| Unit tests (labels, combinations, block parsing, routing, Hub body, preview, draft checks) | 16 of 16 pass. |
+| Unit tests (labels, combinations, block parsing, routing, Hub body, preview, draft checks) | 18 of 18 pass. |
 | Migration 0031 | Applied to the local test databases only (schema 32 of 32). |
 | Editor cards render in place; Upload fills a block; Remove; routes refused by type | Pass (screenshots below). |
 | Case study refuses Generate and Draw, for body and cover; Find with no subject picture leaves the block for a person | Pass. |
 | Publish into a **local Hub** (the Hub repo's `main`, Payload 3.86, SQLite) | Body images arrive as real upload nodes in the right places, with alt text; the summary line becomes the Hub summary; the public page shows them (screenshot 10). |
 | Empty blocks hold the article as a Hub draft | Pass: "Saved as a Hub draft, not published: img-1 is empty. img-2 is empty." |
 
-Screenshots: `06-draft-two-steps-cover-and-blocks.png` (Draft with cover and two filled blocks), `05-case-study-find-and-forbidden-generate.png`, `08-tutorial-published-before.png` (Publish preview), `09-case-study-held-as-draft.png`, `10-hub-public-article.png` (local Hub page). The pictures in them are **local test uploads**, not Find, Generate or Draw results.
+Screenshots: `06-draft-two-steps-cover-and-blocks.png` (Draft with cover and two filled blocks), `05-case-study-find-and-forbidden-generate.png`, `08-tutorial-published-before.png` (Publish preview), `09-case-study-held-as-draft.png`, `10-hub-public-article.png` (local Hub page), `11-first-arrival-skeleton.png` (the skeleton while the first pictures are added). The pictures in them are **local test uploads**, not Find, Generate or Draw results.
 
 ## Not done yet: the 4-article comparison
 

@@ -90,6 +90,15 @@ export function DraftsStage({
   const [autoWorking, setAutoWorking] = useState<string | null>(null);
   const [autoNote, setAutoNote] = useState<string | null>(null);
   const autoClaimed = useRef(imagesAutoFilled);
+  /* THE ARTICLE SHOWS WHEN ITS FIRST PICTURES ARE READY (build session,
+     2026-10-15: "do not show the content [until] the initial images are
+     ready"). On the first arrival a skeleton of the page stands in for it,
+     with one line saying what is being done. */
+  const [preparing, setPreparing] = useState(twoSteps && !imagesAutoFilled);
+  type PrepStep = { id: string; label: string; state: "waiting" | "working" | "done" | "empty" };
+  const [prepSteps, setPrepSteps] = useState<PrepStep[]>([]);
+  const markStep = (id: string, state: PrepStep["state"]) =>
+    setPrepSteps((steps) => steps.map((step) => (step.id === id ? { ...step, state } : step)));
   const continueLabel = twoSteps ? "Continue to publish" : "Continue to images";
   const bodyPolicy = labelsType ? TYPE_IMAGE_POLICY[labelsType].body : null;
   const addImage = bodyPolicy
@@ -110,7 +119,7 @@ export function DraftsStage({
           }),
       }
     : undefined;
-  const editorMode = twoSteps && Boolean(draft.contentMd) && !draft.streaming && !revising;
+  const editorMode = twoSteps && Boolean(draft.contentMd) && !draft.streaming && !revising && !preparing;
 
   /* PREVIEW ONLY: removing a block takes it out of the draft (saved at once,
      with the version before kept) and drops the picture that filled it. */
@@ -138,27 +147,49 @@ export function DraftsStage({
     const markdown = draft.contentMd;
     void (async () => {
       const claim = await claimAutoImagesAction(projectId);
-      if (!claim.ok || !claim.value) return;
+      if (!claim.ok || !claim.value) {
+        setPreparing(false);
+        return;
+      }
+      const todo = [
+        ...(cover ? [] : [{ id: "cover", label: "The cover" }]),
+        ...parseImageBlocks(markdown)
+          .filter((block) => !blockImages[block.id])
+          .map((block) => ({ id: block.id, label: `Image ${block.id.replace(/^img-/, "")}` })),
+      ];
+      setPrepSteps(todo.map((step) => ({ ...step, state: "waiting" as const })));
       const empty: string[] = [];
       let tried = 0;
       if (!cover) {
         tried += 1;
         setAutoWorking("cover");
+        markStep("cover", "working");
         const result = await autoCoverAction(projectId);
-        if (result.ok && result.value.image) setCover(result.value.image);
-        else empty.push("the cover");
+        if (result.ok && result.value.image) {
+          setCover(result.value.image);
+          markStep("cover", "done");
+        } else {
+          empty.push("the cover");
+          markStep("cover", "empty");
+        }
       }
       for (const block of parseImageBlocks(markdown)) {
         if (blockImages[block.id]) continue;
         tried += 1;
         setAutoWorking(block.id);
+        markStep(block.id, "working");
         const result = await autoBlockAction(projectId, block.id);
         if (result.ok && result.value.image) {
           const image = result.value.image;
           setBlockImages((current) => ({ ...current, [block.id]: image }));
-        } else empty.push(block.id);
+          markStep(block.id, "done");
+        } else {
+          empty.push(block.id);
+          markStep(block.id, "empty");
+        }
       }
       setAutoWorking(null);
+      setPreparing(false);
       if (tried === 0) return;
       setAutoNote(
         empty.length
@@ -169,6 +200,11 @@ export function DraftsStage({
     // Runs once, when the first draft is there.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [twoSteps, draft.id, draft.contentMd, draft.streaming]);
+
+  // A draft that fails to arrive shows its error, not a screen that never ends.
+  useEffect(() => {
+    if (draft.error && preparing) setPreparing(false);
+  }, [draft.error, preparing]);
 
   const renderImageBlock = labelsType
     ? (raw: string, controls?: BlockControls) => {
@@ -393,7 +429,7 @@ export function DraftsStage({
      own `px-5` so its dividers still run edge to edge, which is why the sheet
      takes them `flush`. */
   const cannotContinue =
-    !draft.id || !draft.contentMd || draft.streaming || revising || dirty || pending;
+    !draft.id || !draft.contentMd || draft.streaming || revising || dirty || pending || preparing;
 
   const reviseBody = (
     <>
@@ -576,7 +612,9 @@ export function DraftsStage({
 
             {draft.error && <p className="mb-2 mx-5 rounded-2xl bg-danger-soft px-4 py-3 text-sm text-danger sm:mx-8" role="alert">{draft.error}</p>}
 
-            {editorMode ? (
+            {twoSteps && preparing ? (
+              <PreparingSkeleton writing={draft.streaming || !draft.contentMd} steps={prepSteps} />
+            ) : editorMode ? (
               /* PREVIEW ONLY: the new direction's draft box IS the editor: a
                  toolbar across the top, the cover and the article under it, the
                  same margin on both sides (build session, 2026-10-15). */
@@ -754,5 +792,59 @@ export function DraftsStage({
         />
       </div>
     </StageShell>
+  );
+}
+
+/**
+ * PREVIEW ONLY: the first arrival at the draft, while the article is written
+ * and its first pictures are added. A skeleton of the page stands in for the
+ * article (build session, 2026-10-15: "or you can use skeleton loader"), so the
+ * editor never opens on half a page; one short line says what is happening.
+ */
+function PreparingSkeleton({
+  writing,
+  steps,
+}: {
+  writing: boolean;
+  steps: { id: string; label: string; state: "waiting" | "working" | "done" | "empty" }[];
+}) {
+  const finished = steps.filter((step) => step.state === "done" || step.state === "empty").length;
+  const status = writing
+    ? "Writing the article…"
+    : steps.length
+      ? `Adding the pictures, ${Math.min(finished + 1, steps.length)} of ${steps.length}…`
+      : "Adding the pictures…";
+  const images = Math.max(1, steps.filter((step) => step.id !== "cover").length);
+  const bar = "cs-shimmer rounded-full bg-sunken";
+  const lines = (widths: string[]) => (
+    <div className="space-y-2.5">
+      {widths.map((width, index) => (
+        <div key={index} className={`${bar} h-3.5`} style={{ width }} />
+      ))}
+    </div>
+  );
+  return (
+    <div className="mx-auto w-full max-w-[46rem] px-5 pb-16 pt-5 sm:px-8 sm:pb-20 sm:pt-8" aria-busy="true">
+      <p className="mb-4 flex items-center gap-2 text-sm text-ink-2" role="status" aria-live="polite">
+        <span aria-hidden className="inline-block size-2 animate-pulse rounded-full bg-accent motion-reduce:animate-none" />
+        {status}
+      </p>
+      <div aria-hidden className="space-y-7">
+        <div className="cs-shimmer aspect-[16/9] w-full rounded-2xl bg-sunken" />
+        <div className="space-y-3">
+          <div className={`${bar} h-8`} style={{ width: "88%" }} />
+          <div className={`${bar} h-8`} style={{ width: "54%" }} />
+        </div>
+        {lines(["96%", "72%"])}
+        {Array.from({ length: images }, (_, index) => (
+          <div key={index} className="space-y-7">
+            <div className={`${bar} h-5`} style={{ width: index % 2 ? "38%" : "46%" }} />
+            {lines(["100%", "94%", "98%", "62%"])}
+            <div className="cs-shimmer aspect-[16/9] w-full rounded-2xl bg-sunken" />
+            {lines(["97%", "90%", "48%"])}
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }

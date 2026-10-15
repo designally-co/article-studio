@@ -185,8 +185,9 @@ export function ArticleEditor({
       {editor && railHost && createPortal(<Toolbar editor={editor} addImage={addImage} disabled={disabled} orientation="vertical" />, railHost)}
       {/* CENTRED, WITH THE SAME SPACE EACH SIDE (build session, 2026-10-15): a
           readable measure in the middle of the box on a wide screen, the box's
-          own margin on a narrow one. The cover and the cards share it. */}
-      <div className="mx-auto w-full max-w-[46rem] px-5 pb-16 pt-6 sm:px-8 sm:pb-20">
+          own margin on a narrow one. The cover and the cards share it. The top
+          matches the sides, so the cover drops its own top margin. */}
+      <div className="mx-auto w-full max-w-[46rem] px-5 pb-16 pt-5 sm:px-8 sm:pb-20 sm:pt-8 [&>figure:first-child]:mt-0">
         {before}
         <div className="prose-draft prose-editor" lang="en">
           <EditorContent editor={editor} />
