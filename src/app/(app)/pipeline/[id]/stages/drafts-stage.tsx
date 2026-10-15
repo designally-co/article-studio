@@ -9,11 +9,12 @@ import { ArrowRight, Eye, Pencil, X } from "lucide-react";
 import { SHEET_CLEARANCE, StageAction, StageSheet } from "./stage-mobile";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { deleteRevisionAction, goToFinalizeAction, saveDraftContentAction } from "../actions";
-import { clearBlockAction } from "../block-actions";
+import { autoBlockAction, autoCoverAction, claimAutoImagesAction, clearBlockAction } from "../block-actions";
 import { CoverCard, ImageBlockCard } from "./image-block-card";
-import { ArticleEditor } from "./article-editor";
+import { ArticleEditor, type BlockControls } from "./article-editor";
 import type { BlockRoute } from "@/lib/direction/image-routing";
-import { parseImageBlockBody, removeImageBlock } from "@/lib/direction/image-blocks";
+import { parseImageBlockBody, parseImageBlocks, removeImageBlock, serializeImageBlockBody } from "@/lib/direction/image-blocks";
+import { MAX_BODY_BLOCKS, TYPE_IMAGE_POLICY } from "@/lib/direction/image-routing";
 import type { LabelType } from "@/lib/direction/labels";
 import type { BlockImageView } from "@/lib/pipeline/views";
 
@@ -43,6 +44,7 @@ export function DraftsStage({
   blockImages: initialBlockImages = {},
   cover: initialCover = null,
   coverRoutes = [],
+  imagesAutoFilled = true,
 }: {
   projectId: string;
   drafts: { id: string; variationNo: number; contentMd: string; isSelected: boolean }[];
@@ -55,6 +57,8 @@ export function DraftsStage({
   /** PREVIEW ONLY: the cover is chosen here too; the steps are Draft and Publish. */
   cover?: BlockImageView | null;
   coverRoutes?: BlockRoute[];
+  /** PREVIEW ONLY: whether the one automatic fill of the pictures has already happened. */
+  imagesAutoFilled?: boolean;
 }) {
   const existing = drafts.find((draft) => draft.isSelected) ?? drafts[0];
   const [draft, setDraft] = useState<DraftView>({
@@ -77,7 +81,35 @@ export function DraftsStage({
   const [blockImages, setBlockImages] = useState(initialBlockImages);
   const [cover, setCover] = useState(initialCover);
   const twoSteps = Boolean(labelsType);
+  /* THE FIRST PICTURES COME WITH THE DRAFT (build session, 2026-10-15). Once
+     the draft exists, the cover and every image block are filled by the type's
+     image rules, one call at a time so each card shows it working. Only once
+     per article, and only what is still empty; after that every picture is the
+     editor's choice. */
+  const [autoWorking, setAutoWorking] = useState<string | null>(null);
+  const [autoNote, setAutoNote] = useState<string | null>(null);
+  const autoClaimed = useRef(imagesAutoFilled);
   const continueLabel = twoSteps ? "Continue to publish" : "Continue to images";
+  const bodyPolicy = labelsType ? TYPE_IMAGE_POLICY[labelsType].body : null;
+  const addImage = bodyPolicy
+    ? {
+        /* The type's count only shapes the first draft; the editor may add up to
+           the three slots any article has (build session, 2026-10-15). */
+        max: MAX_BODY_BLOCKS,
+        noneReason: "",
+        newBlock: (id: string) =>
+          serializeImageBlockBody({
+            id,
+            role: bodyPolicy.roles[0] ?? null,
+            purpose: "",
+            caption: "",
+            alt: "",
+            suggestedRoute: bodyPolicy.routes[0] ?? "upload",
+            searchHint: "",
+          }),
+      }
+    : undefined;
+  const editorMode = twoSteps && Boolean(draft.contentMd) && !draft.streaming && !revising;
 
   /* PREVIEW ONLY: removing a block takes it out of the draft (saved at once,
      with the version before kept) and drops the picture that filled it. */
@@ -99,8 +131,46 @@ export function DraftsStage({
     });
   }
 
+  useEffect(() => {
+    if (!twoSteps || autoClaimed.current || !draft.id || !draft.contentMd || draft.streaming) return;
+    autoClaimed.current = true;
+    const markdown = draft.contentMd;
+    void (async () => {
+      const claim = await claimAutoImagesAction(projectId);
+      if (!claim.ok || !claim.value) return;
+      const empty: string[] = [];
+      let tried = 0;
+      if (!cover) {
+        tried += 1;
+        setAutoWorking("cover");
+        const result = await autoCoverAction(projectId);
+        if (result.ok && result.value.image) setCover(result.value.image);
+        else empty.push("the cover");
+      }
+      for (const block of parseImageBlocks(markdown)) {
+        if (blockImages[block.id]) continue;
+        tried += 1;
+        setAutoWorking(block.id);
+        const result = await autoBlockAction(projectId, block.id);
+        if (result.ok && result.value.image) {
+          const image = result.value.image;
+          setBlockImages((current) => ({ ...current, [block.id]: image }));
+        } else empty.push(block.id);
+      }
+      setAutoWorking(null);
+      if (tried === 0) return;
+      setAutoNote(
+        empty.length
+          ? `Pictures added by the image rules. Still empty: ${empty.join(", ")}. Fill them with Find, Generate, Draw or Upload.`
+          : "Pictures added by the image rules. Change any of them with Find, Generate, Draw, Upload or Remove.",
+      );
+    })();
+    // Runs once, when the first draft is there.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [twoSteps, draft.id, draft.contentMd, draft.streaming]);
+
   const renderImageBlock = labelsType
-    ? (raw: string) => {
+    ? (raw: string, controls?: BlockControls) => {
         const block = parseImageBlockBody(raw);
         return (
           <ImageBlockCard
@@ -109,7 +179,8 @@ export function DraftsStage({
             block={block}
             type={labelsType}
             image={blockImages[block.id] ?? null}
-            locked={dirty || draft.streaming}
+            locked={dirty || draft.streaming || autoWorking !== null}
+            autoWorking={autoWorking === block.id}
             onImage={(blockId, image) =>
               setBlockImages((current) => {
                 const copy = { ...current };
@@ -118,7 +189,10 @@ export function DraftsStage({
                 return copy;
               })
             }
-            onRemove={removeBlock}
+            /* Inside the editor the slot is a node: it is removed there and the
+               article saves itself. In the read-only view the Markdown is edited. */
+            onRemove={controls ? () => controls.remove() : removeBlock}
+            onEdit={controls ? (next) => controls.update(serializeImageBlockBody(next)) : undefined}
           />
         );
       }
@@ -444,7 +518,8 @@ export function DraftsStage({
             article rather than in its header. */}
         <div className={RAIL_CONTENT}>
         <article className="cs-bezel motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-4 motion-safe:duration-500">
-          <div className="cs-bezel-core relative">
+          {/* The editor's toolbar sticks while scrolling, which a clipping box would stop. */}
+          <div className="cs-bezel-core relative" style={twoSteps ? { overflow: "visible" } : undefined}>
             {/* NO TITLE HERE. "Article draft" sat in 20px semibold at the top of
                 the plate, directly under a progress row whose current step says
                 Draft — the same fact, twice, in the two places you look first.
@@ -493,7 +568,37 @@ export function DraftsStage({
 
             {draft.error && <p className="mb-2 mx-5 rounded-2xl bg-danger-soft px-4 py-3 text-sm text-danger sm:mx-8" role="alert">{draft.error}</p>}
 
-            {editing ? (
+            {editorMode ? (
+              /* PREVIEW ONLY: the new direction's draft box IS the editor: a
+                 toolbar across the top, the cover and the article under it, the
+                 same margin on both sides (build session, 2026-10-15). */
+              <ArticleEditor
+                markdown={draft.contentMd}
+                renderImageBlock={renderImageBlock}
+                addImage={addImage}
+                before={
+                  <>
+                    <CoverCard
+                      projectId={projectId}
+                      routes={coverRoutes}
+                      image={cover}
+                      locked={dirty || autoWorking !== null}
+                      autoWorking={autoWorking === "cover"}
+                      onImage={setCover}
+                    />
+                    {(autoWorking || autoNote) && (
+                      <p role="status" className="mb-6 rounded-xl bg-sunken px-4 py-3 text-sm text-ink-2">
+                        {autoWorking ? "Adding pictures by the image rules…" : autoNote}
+                      </p>
+                    )}
+                  </>
+                }
+                onChange={(next) => {
+                  setDraft((current) => ({ ...current, contentMd: next }));
+                  setDirty(true);
+                }}
+              />
+            ) : editing ? (
               /* The editor takes the same right margin as the article, so the
                  textarea stops short of the button rather than running under a
                  control you cannot click through. */
@@ -511,22 +616,7 @@ export function DraftsStage({
                  utilities setting the same side resolve by emission order, not
                  by the order they are written in. */
               <div className="min-h-[38rem] max-w-[74ch] px-5 pb-16 pt-5 sm:px-8 sm:pb-24 sm:pt-8">
-                {twoSteps && !draft.streaming && draft.contentMd && (
-                  <CoverCard projectId={projectId} routes={coverRoutes} image={cover} locked={dirty} onImage={setCover} />
-                )}
-                {/* PREVIEW ONLY: the new direction's draft is always editable, in
-                    place, with its cards where they sit (build session,
-                    2026-10-15). While it is being written it streams as text. */}
-                {twoSteps && draft.contentMd && !draft.streaming && !revising ? (
-                  <ArticleEditor
-                    markdown={draft.contentMd}
-                    renderImageBlock={renderImageBlock}
-                    onChange={(next) => {
-                      setDraft((current) => ({ ...current, contentMd: next }));
-                      setDirty(true);
-                    }}
-                  />
-                ) : draft.contentMd ? <Markdown renderImageBlock={draft.streaming ? undefined : renderImageBlock}>{draft.contentMd}</Markdown> : <p className="py-20 text-center text-sm text-ink-2">Preparing the article…</p>}
+                {draft.contentMd ? <Markdown renderImageBlock={draft.streaming ? undefined : renderImageBlock}>{draft.contentMd}</Markdown> : <p className="py-20 text-center text-sm text-ink-2">Preparing the article…</p>}
                 {(draft.streaming || revising) && <span className="ml-0.5 inline-block h-4 w-1.5 animate-pulse rounded-full bg-accent align-text-bottom motion-reduce:animate-none" />}
               </div>
             )}

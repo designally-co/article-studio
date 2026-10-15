@@ -1731,3 +1731,24 @@ main:has(.cs-create-page),
   background: #c73f29; /* the orange that is legal as a mark on a light ground */
   clip-path: inset(0 0 0 73.79%);
 }
+
+/* PREVIEW ONLY: the always-editable draft (proposed article direction). The
+   article fills the editor box, list items do not double their spacing with
+   the paragraph ProseMirror puts inside each, and a card's own margin is the
+   only space around it. */
+.prose-editor {
+  max-width: none;
+}
+.prose-editor .ProseMirror > :first-child {
+  margin-top: 0;
+}
+.prose-editor li > p {
+  margin: 0;
+}
+.prose-editor [data-image-block-node] > figure {
+  margin: 1.75em 0;
+}
+.prose-editor .ProseMirror {
+  min-height: 24rem;
+  caret-color: var(--accent);
+}

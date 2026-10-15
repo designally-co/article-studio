@@ -1,32 +1,67 @@
 "use client";
 
-import { createContext, useContext, useEffect, useRef, type ReactNode } from "react";
-import { EditorContent, Node, NodeViewWrapper, ReactNodeViewRenderer, mergeAttributes, useEditor } from "@tiptap/react";
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  EditorContent,
+  Node,
+  NodeViewWrapper,
+  ReactNodeViewRenderer,
+  mergeAttributes,
+  useEditor,
+  useEditorState,
+  type Editor,
+  type NodeViewProps,
+} from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { Markdown } from "@tiptap/markdown";
+import {
+  Bold,
+  Heading2,
+  Heading3,
+  ImagePlus,
+  Italic,
+  Link2,
+  List,
+  ListOrdered,
+  Pilcrow,
+  Quote,
+  Redo2,
+  Undo2,
+} from "lucide-react";
+import { nextFreeBlockId, parseImageBlockBody } from "@/lib/direction/image-blocks";
 
 /**
- * PREVIEW ONLY: the draft, always editable (proposed article direction; build
- * session, 2026-10-15: "the draft must be in edit mode only, user can edit the
- * text at anytime").
+ * PREVIEW ONLY: the draft as a rich text editor, filled with the generated
+ * article (proposed article direction; build session, 2026-10-15: "the draft
+ * must be in edit mode only", "the draft box must be the rich text editor
+ * with prefilled generated output").
  *
- * The article is edited as it reads (headings, paragraphs, lists, links), not
- * as Markdown, and there is no edit or preview switch. It still loads and
- * saves Markdown, so everything downstream (blocks, checks, publishing) reads
- * the same text as before.
+ * The article is edited as it reads, with a toolbar for text style, emphasis,
+ * links, lists and quotes, and an Add image button that puts a new image slot
+ * after the paragraph the cursor is in. It still loads and saves Markdown, so
+ * blocks, checks and publishing read the same text as before.
  *
  * An image block is its own node: the editor cannot type into it, shows the
- * block's card in its place, and writes the same ```image fence back when the
- * article is saved.
+ * block's card in its place, and writes the same ```image fence back.
  */
 
-const BlockRenderer = createContext<((raw: string) => ReactNode) | null>(null);
+/** What a card can do to the block it sits in, inside the editor. */
+export type BlockControls = {
+  /** Replace the block's text (its caption, purpose …). */
+  update: (raw: string) => void;
+  /** Take the block out of the article. */
+  remove: () => void;
+};
 
-function ImageBlockView({ node }: { node: { attrs: { raw?: string } } }) {
+type BlockRender = (raw: string, controls: BlockControls) => ReactNode;
+const BlockRenderer = createContext<BlockRender | null>(null);
+
+function ImageBlockView({ node, updateAttributes, deleteNode }: NodeViewProps) {
   const render = useContext(BlockRenderer);
+  const raw = (node.attrs.raw as string | undefined) ?? "";
   return (
     <NodeViewWrapper contentEditable={false} data-image-block-node="">
-      {render ? render(node.attrs.raw ?? "") : null}
+      {render ? render(raw, { update: (next) => updateAttributes({ raw: next }), remove: deleteNode }) : null}
     </NodeViewWrapper>
   );
 }
@@ -58,19 +93,45 @@ const ImageBlockNode = Node.create({
   },
 });
 
+/** The ids of the image blocks in the article, in order. */
+function blockIds(editor: Editor): string[] {
+  const ids: string[] = [];
+  editor.state.doc.descendants((node) => {
+    if (node.type.name === "imageBlock") ids.push(parseImageBlockBody(String(node.attrs.raw ?? "")).id);
+    return false;
+  });
+  return ids;
+}
+
+export type AddImagePolicy = {
+  /** Most body images this article's type allows (0: none). */
+  max: number;
+  /** The text of a new, empty block with this id. */
+  newBlock: (id: string) => string;
+  /** Said when no image may be added, e.g. "A news article has no body images." */
+  noneReason: string;
+};
+
 export function ArticleEditor({
   markdown,
   onChange,
   renderImageBlock,
+  addImage,
+  disabled = false,
+  before,
 }: {
+  /** Shown above the article inside the box, under the toolbar (the cover). */
+  before?: ReactNode;
   markdown: string;
   onChange: (markdown: string) => void;
-  renderImageBlock?: (raw: string) => ReactNode;
+  renderImageBlock?: BlockRender;
+  addImage?: AddImagePolicy;
+  disabled?: boolean;
 }) {
   /* What the editor last said. A change of `markdown` that is not this came
-     from elsewhere (a revision, a restored version, a removed block, a new
-     draft) and replaces the editor's content; one that is, is the editor's own
-     typing coming back round and is left alone, so the cursor does not jump. */
+     from elsewhere (a revision, a restored version, a new draft) and replaces
+     the editor's content; one that is, is the editor's own typing coming back
+     round and is left alone, so the cursor does not jump. */
   const lastEmitted = useRef(markdown);
   const onChangeRef = useRef(onChange);
   useEffect(() => {
@@ -82,8 +143,14 @@ export function ArticleEditor({
     content: markdown,
     contentType: "markdown",
     immediatelyRender: false,
+    editable: !disabled,
     editorProps: {
-      attributes: { class: "outline-none", "aria-label": "Article text", role: "textbox", "aria-multiline": "true" },
+      attributes: {
+        class: "outline-none",
+        "aria-label": "Article text",
+        role: "textbox",
+        "aria-multiline": "true",
+      },
     },
     onUpdate: ({ editor: current }) => {
       const next = current.getMarkdown();
@@ -98,11 +165,168 @@ export function ArticleEditor({
     editor.commands.setContent(markdown, { contentType: "markdown", emitUpdate: false });
   }, [editor, markdown]);
 
+  useEffect(() => {
+    // Without `false` this counts as an edit, and opening the page saved the draft.
+    if (editor && editor.isEditable === disabled) editor.setEditable(!disabled, false);
+  }, [editor, disabled]);
+
   return (
     <BlockRenderer.Provider value={renderImageBlock ?? null}>
-      <div className="prose-draft" lang="en">
-        <EditorContent editor={editor} />
+      {editor && <Toolbar editor={editor} addImage={addImage} disabled={disabled} />}
+      {/* CENTRED, WITH THE SAME SPACE EACH SIDE (build session, 2026-10-15): a
+          readable measure in the middle of the box on a wide screen, the box's
+          own margin on a narrow one. The cover and the cards share it. */}
+      <div className="mx-auto w-full max-w-[46rem] px-5 pb-16 pt-6 sm:px-8 sm:pb-20">
+        {before}
+        <div className="prose-draft prose-editor" lang="en">
+          <EditorContent editor={editor} />
+        </div>
       </div>
     </BlockRenderer.Provider>
+  );
+}
+
+function Toolbar({ editor, addImage, disabled }: { editor: Editor; addImage?: AddImagePolicy; disabled: boolean }) {
+  const state = useEditorState({
+    editor,
+    selector: ({ editor: e }) => ({
+      paragraph: e.isActive("paragraph") && !e.isActive("bulletList") && !e.isActive("orderedList") && !e.isActive("blockquote"),
+      h2: e.isActive("heading", { level: 2 }),
+      h3: e.isActive("heading", { level: 3 }),
+      bold: e.isActive("bold"),
+      italic: e.isActive("italic"),
+      link: e.isActive("link"),
+      bullet: e.isActive("bulletList"),
+      ordered: e.isActive("orderedList"),
+      quote: e.isActive("blockquote"),
+      canUndo: e.can().undo(),
+      canRedo: e.can().redo(),
+      images: blockIds(e),
+    }),
+  });
+  const [linkOpen, setLinkOpen] = useState(false);
+  const [linkUrl, setLinkUrl] = useState("");
+
+  const max = addImage?.max ?? 0;
+  const freeId = nextFreeBlockId(state.images);
+  const imageReason = !addImage
+    ? "Images are not available here."
+    : max === 0
+      ? addImage.noneReason
+      : state.images.length >= max || !freeId
+        ? `This article can have at most ${max} body image${max === 1 ? "" : "s"}. Remove one to add another.`
+        : undefined;
+
+  function insertImage() {
+    if (!addImage || !freeId || imageReason) return;
+    const { $from } = editor.state.selection;
+    // After the whole top-level block the cursor is in: never inside a sentence or a list.
+    const at = $from.depth > 0 ? $from.after(1) : editor.state.doc.content.size;
+    editor
+      .chain()
+      .focus()
+      .insertContentAt(at, { type: "imageBlock", attrs: { raw: addImage.newBlock(freeId) } })
+      .run();
+  }
+
+  function openLink() {
+    setLinkUrl(String(editor.getAttributes("link").href ?? ""));
+    setLinkOpen(true);
+  }
+
+  function applyLink() {
+    const url = linkUrl.trim();
+    const chain = editor.chain().focus().extendMarkRange("link");
+    if (!url) chain.unsetLink().run();
+    else chain.setLink({ href: /^https?:\/\//i.test(url) ? url : `https://${url}` }).run();
+    setLinkOpen(false);
+  }
+
+  const button = (props: {
+    label: string;
+    icon: ReactNode;
+    active?: boolean;
+    onClick: () => void;
+    disabled?: boolean;
+    title?: string;
+    text?: string;
+  }) => (
+    <button
+      type="button"
+      aria-label={props.label}
+      title={props.title ?? props.label}
+      aria-pressed={props.active}
+      disabled={disabled || props.disabled}
+      // Keep the article's selection: a click on the toolbar must not move the cursor.
+      onMouseDown={(event) => event.preventDefault()}
+      onClick={props.onClick}
+      className={`inline-flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-lg px-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:shadow-[var(--shadow-focus)] disabled:cursor-not-allowed disabled:opacity-40 ${
+        props.active ? "bg-chrome-active text-ink" : "text-ink-2 hover:bg-sunken hover:text-ink"
+      } ${props.text ? "" : "w-9"}`}
+    >
+      {props.icon}
+      {props.text && <span>{props.text}</span>}
+    </button>
+  );
+  const divider = <span aria-hidden className="mx-1 h-5 w-px shrink-0 bg-line" />;
+  const icon = "size-4";
+
+  return (
+    <div
+      role="toolbar"
+      aria-label="Format the article"
+      className="sticky top-12 z-[5] rounded-t-2xl border-b border-line bg-surface/95 px-2 py-1.5 backdrop-blur-sm lg:top-14 sm:px-4"
+    >
+      <div className="flex items-center gap-0.5 overflow-x-auto">
+        {button({ label: "Normal text", icon: <Pilcrow aria-hidden className={icon} />, active: state.paragraph, onClick: () => editor.chain().focus().setParagraph().run() })}
+        {button({ label: "Section heading", icon: <Heading2 aria-hidden className={icon} />, active: state.h2, onClick: () => editor.chain().focus().toggleHeading({ level: 2 }).run() })}
+        {button({ label: "Sub-heading", icon: <Heading3 aria-hidden className={icon} />, active: state.h3, onClick: () => editor.chain().focus().toggleHeading({ level: 3 }).run() })}
+        {divider}
+        {button({ label: "Bold", icon: <Bold aria-hidden className={icon} />, active: state.bold, onClick: () => editor.chain().focus().toggleBold().run() })}
+        {button({ label: "Italic", icon: <Italic aria-hidden className={icon} />, active: state.italic, onClick: () => editor.chain().focus().toggleItalic().run() })}
+        {button({ label: "Link", icon: <Link2 aria-hidden className={icon} />, active: state.link || linkOpen, onClick: () => (linkOpen ? setLinkOpen(false) : openLink()) })}
+        {divider}
+        {button({ label: "Bullet list", icon: <List aria-hidden className={icon} />, active: state.bullet, onClick: () => editor.chain().focus().toggleBulletList().run() })}
+        {button({ label: "Numbered list", icon: <ListOrdered aria-hidden className={icon} />, active: state.ordered, onClick: () => editor.chain().focus().toggleOrderedList().run() })}
+        {button({ label: "Quote", icon: <Quote aria-hidden className={icon} />, active: state.quote, onClick: () => editor.chain().focus().toggleBlockquote().run() })}
+        {divider}
+        {button({ label: "Undo", icon: <Undo2 aria-hidden className={icon} />, disabled: !state.canUndo, onClick: () => editor.chain().focus().undo().run() })}
+        {button({ label: "Redo", icon: <Redo2 aria-hidden className={icon} />, disabled: !state.canRedo, onClick: () => editor.chain().focus().redo().run() })}
+        <span className="ml-auto pl-2" />
+        {button({
+          label: "Add image",
+          text: "Add image",
+          icon: <ImagePlus aria-hidden className={icon} />,
+          disabled: Boolean(imageReason),
+          title: imageReason ?? "Add an image slot after the paragraph the cursor is in",
+          onClick: insertImage,
+        })}
+      </div>
+      {linkOpen && (
+        <form
+          className="mt-1.5 flex items-center gap-2 pb-1"
+          onSubmit={(event) => {
+            event.preventDefault();
+            applyLink();
+          }}
+        >
+          <label className="sr-only" htmlFor="article-link-url">Link address</label>
+          <input
+            id="article-link-url"
+            autoFocus
+            value={linkUrl}
+            onChange={(event) => setLinkUrl(event.target.value)}
+            placeholder="https://… (empty removes the link)"
+            className="cs-input h-9 flex-1 text-sm"
+          />
+          <button type="submit" className="cs-btn h-9 px-3 text-sm">
+            Apply
+          </button>
+          <button type="button" onClick={() => setLinkOpen(false)} className="cs-btn h-9 px-3 text-sm">
+            Cancel
+          </button>
+        </form>
+      )}
+    </div>
   );
 }

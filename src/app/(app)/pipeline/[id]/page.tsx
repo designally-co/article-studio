@@ -182,6 +182,7 @@ export default async function PipelinePage({
             blockImages={blockImagesOf(loaded.images)}
             cover={labels && cover ? blockImageView(cover) : null}
             coverRoutes={labels ? coverRoutesFor(labels) : []}
+            imagesAutoFilled={Boolean(loaded.project.inputs.imagesAutoFilledAt)}
           />
         )}
         {current === 6 && (

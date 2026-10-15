@@ -175,6 +175,12 @@ export type ProjectInputs = {
    * published the proposed way. Absent: the current behaviour, unchanged.
    */
   labels?: import("@/lib/direction/labels").ArticleLabels;
+  /**
+   * PREVIEW ONLY: when the one automatic fill of the cover and image blocks
+   * started (by the type's image rules), after the first draft. Set once;
+   * every picture after it is the editor's choice.
+   */
+  imagesAutoFilledAt?: string;
   articleMode?: import("@/lib/editorial").ArticleMode;
   editorialFormat?: import("@/lib/editorial").EditorialFormat;
   editorialPeriod?: string;

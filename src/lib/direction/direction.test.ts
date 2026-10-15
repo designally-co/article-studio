@@ -261,3 +261,13 @@ test("the Publish preview shows filled blocks as pictures and lifts the summary"
   assert.ok(!out.markdown.includes("```image"));
   assert.ok(!out.markdown.includes("A short summary line here."));
 });
+
+test("a new block takes the first free slot and round-trips", async () => {
+  const { nextFreeBlockId, serializeImageBlockBody, parseImageBlockBody } = await import("./image-blocks");
+  assert.equal(nextFreeBlockId(["img-1", "img-3"]), "img-2");
+  assert.equal(nextFreeBlockId(["img-1", "img-2", "img-3"]), null);
+  const body = serializeImageBlockBody({ id: "img-2", role: "step", purpose: "P", caption: "C", alt: "A", suggestedRoute: "draw", searchHint: "" });
+  assert.ok(!body.includes("```"));
+  assert.equal(parseImageBlockBody(body).caption, "C");
+  assert.equal(parseImageBlockBody(body).id, "img-2");
+});

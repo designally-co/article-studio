@@ -3,7 +3,7 @@
 import { useRef, useState, useTransition } from "react";
 import { Brush, ImagePlus, Search, Sparkles, Trash2 } from "lucide-react";
 import type { ImageBlock } from "@/lib/direction/image-blocks";
-import { BLOCK_ROUTES, allowedRoutes, effectiveRoute, type BlockRoute } from "@/lib/direction/image-routing";
+import { BLOCK_ROUTES, effectiveRoute, type BlockRoute } from "@/lib/direction/image-routing";
 import type { LabelType } from "@/lib/direction/labels";
 import type { BlockImageView } from "@/lib/pipeline/views";
 import {
@@ -40,7 +40,11 @@ export function ImageBlockCard({
   locked,
   onImage,
   onRemove,
+  onEdit,
+  autoWorking = false,
 }: {
+  /** The first, automatic fill is working on this block right now. */
+  autoWorking?: boolean;
   projectId: string;
   block: ImageBlock;
   type: LabelType;
@@ -49,21 +53,30 @@ export function ImageBlockCard({
   locked: boolean;
   onImage: (blockId: string, image: BlockImageView | null) => void;
   onRemove: (blockId: string) => void;
+  /** Inside the editor: change the block's caption or purpose. */
+  onEdit?: (block: ImageBlock) => void;
 }) {
-  const allowed = allowedRoutes(type);
+  /* THE TYPE ONLY SUGGESTS. Its rule chose the first, automatic picture; from
+     then on every route is the editor's to use (build session, 2026-10-15). */
   const suggested = effectiveRoute(type, block.suggestedRoute);
   const [busy, setBusy] = useState<BlockRoute | null>(null);
+  const [promptOpen, setPromptOpen] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const fileInput = useRef<HTMLInputElement>(null);
 
-  const status = !image ? "Empty: needs a picture" : `Filled by ${ROUTE_LABEL[image.route ?? "upload"]}`;
+  const status = autoWorking
+    ? "Adding a picture…"
+    : !image
+      ? "Empty: needs a picture"
+      : `Filled by ${ROUTE_LABEL[image.route ?? "upload"]}`;
 
-  function fill(route: "find" | "generate" | "draw") {
+  function fill(route: "find" | "generate" | "draw", prompt?: string) {
     setBusy(route);
     setNote(null);
+    setPromptOpen(false);
     startTransition(async () => {
-      const result = await fillBlockAction(projectId, block.id, route);
+      const result = await fillBlockAction(projectId, block.id, route, prompt);
       setBusy(null);
       if (!result.ok) {
         setNote(result.message);
@@ -99,10 +112,6 @@ export function ImageBlockCard({
     });
   }
 
-  const reason = (route: BlockRoute) =>
-    allowed.includes(route)
-      ? undefined
-      : `A ${type.replace("_", " ")} does not use ${ROUTE_LABEL[route]} for body images.`;
 
   return (
     <figure
@@ -126,6 +135,10 @@ export function ImageBlockCard({
       {image ? (
         // eslint-disable-next-line @next/next/no-img-element -- a stored image served by the app's own route
         <img src={image.url} alt={image.alt || block.alt} className="block h-auto w-full bg-white" />
+      ) : onEdit ? (
+        <div className="grid min-h-28 place-items-center px-6 py-6 text-center text-sm text-ink-3">
+          <p>No picture yet. Say what it should show, then Find, Draw or Upload.</p>
+        </div>
       ) : (
         <div className="grid min-h-40 place-items-center px-6 py-8 text-center text-sm text-ink-2">
           <p>
@@ -135,7 +148,29 @@ export function ImageBlockCard({
       )}
 
       <figcaption className="space-y-1 px-4 pt-3 text-sm text-ink-2">
-        <p className="text-ink">{block.caption || "No caption yet."}</p>
+        {onEdit ? (
+          /* INSIDE THE EDITOR THE WORDS ARE EDITABLE TOO: the caption the reader
+             sees, and the purpose Find and Draw work from. Saved with the
+             article when the field is left. */
+          <div className="space-y-2">
+            <BlockField
+              key={`caption:${block.caption}`}
+              label="Caption"
+              value={block.caption}
+              placeholder="The caption the reader sees under the picture"
+              onCommit={(caption) => onEdit({ ...block, caption, alt: block.alt || caption })}
+            />
+            <BlockField
+              key={`purpose:${block.purpose}`}
+              label="Purpose"
+              value={block.purpose}
+              placeholder="What the reader should understand from this picture"
+              onCommit={(purpose) => onEdit({ ...block, purpose })}
+            />
+          </div>
+        ) : (
+          <p className="text-ink">{block.caption || "No caption yet."}</p>
+        )}
         {image?.credit && <p className="text-xs">{image.credit}</p>}
         {image?.sourceUrl && (
           <p className="truncate text-xs">
@@ -145,7 +180,7 @@ export function ImageBlockCard({
             </a>
           </p>
         )}
-        {image && (
+        {image && !onEdit && (
           <p className="text-xs">
             <span className="font-medium text-ink">Purpose:</span> {block.purpose}
           </p>
@@ -155,16 +190,21 @@ export function ImageBlockCard({
       <div className="flex flex-wrap items-center gap-1.5 px-4 py-3" role="group" aria-label={`Fill ${block.id}`}>
         {BLOCK_ROUTES.map((route) => {
           const Icon = ROUTE_ICON[route];
-          const why = reason(route);
           const isSuggested = route === suggested;
           return (
             <button
               key={route}
               type="button"
-              disabled={!!why || pending || locked}
-              title={why ?? (locked ? "Save the draft first." : isSuggested ? "Suggested for this block" : undefined)}
+              disabled={pending || locked || autoWorking}
+              title={locked ? "Saving the draft first…" : isSuggested ? "Suggested for this block" : undefined}
               aria-pressed={isSuggested}
-              onClick={() => (route === "upload" ? fileInput.current?.click() : fill(route))}
+              onClick={() =>
+                route === "upload"
+                  ? fileInput.current?.click()
+                  : route === "generate"
+                    ? setPromptOpen((open) => !open)
+                    : fill(route)
+              }
               className={`inline-flex items-center gap-1.5 rounded-full px-3 py-2 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:shadow-[var(--shadow-focus)] disabled:cursor-not-allowed disabled:opacity-40 ${
                 isSuggested ? "bg-ink text-surface" : "bg-surface text-ink-2 hover:bg-deep"
               }`}
@@ -200,6 +240,7 @@ export function ImageBlockCard({
           }}
         />
       </div>
+      {promptOpen && <PromptRow onCancel={() => setPromptOpen(false)} onGenerate={(prompt) => fill("generate", prompt)} />}
       {note && (
         <p role="status" className="border-t border-line px-4 py-2.5 text-xs text-ink-2">
           {note}
@@ -220,15 +261,19 @@ export function CoverCard({
   image,
   locked,
   onImage,
+  autoWorking = false,
 }: {
   projectId: string;
-  /** The cover routes this type allows. */
+  /** The cover routes this type's rule uses; the first is marked as suggested. Every route stays available. */
   routes: BlockRoute[];
   image: BlockImageView | null;
   locked: boolean;
   onImage: (image: BlockImageView | null) => void;
+  /** The first, automatic fill is working on the cover right now. */
+  autoWorking?: boolean;
 }) {
   const [busy, setBusy] = useState<BlockRoute | "remove" | null>(null);
+  const [promptOpen, setPromptOpen] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const fileInput = useRef<HTMLInputElement>(null);
@@ -250,9 +295,10 @@ export function CoverCard({
     });
   }
 
-  function run(route: "find" | "generate" | "upload", file?: File) {
+  function run(route: "find" | "generate" | "upload", file?: File, prompt?: string) {
     setBusy(route);
     setNote(null);
+    setPromptOpen(false);
     startTransition(async () => {
       let result;
       if (route === "upload" && file) {
@@ -260,7 +306,7 @@ export function CoverCard({
         data.set("file", file);
         result = await uploadCoverAction(projectId, data);
       } else {
-        result = await fillCoverAction(projectId, route as "find" | "generate");
+        result = await fillCoverAction(projectId, route as "find" | "generate", prompt);
       }
       setBusy(null);
       if (!result.ok) return setNote(result.message);
@@ -274,7 +320,7 @@ export function CoverCard({
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-4 py-2.5">
         <span className="text-xs font-semibold uppercase tracking-wide text-ink-2">Cover</span>
         <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${image ? "bg-accent-soft text-accent-press" : "bg-warn-soft text-ink"}`}>
-          {image ? `Chosen: ${image.route?.replace("cover-", "") ?? image.provider}` : "No cover yet"}
+          {autoWorking ? "Adding a cover…" : image ? `Chosen: ${image.route?.replace("cover-", "") ?? image.provider}` : "No cover yet"}
         </span>
       </div>
       {image ? (
@@ -293,14 +339,19 @@ export function CoverCard({
       <div className="flex flex-wrap items-center gap-1.5 px-4 py-3" role="group" aria-label="Choose the cover">
         {COVER_ROUTES.map((route) => {
           const Icon = ROUTE_ICON[route];
-          const allowed = routes.includes(route);
           return (
             <button
               key={route}
               type="button"
-              disabled={!allowed || pending || locked}
-              title={allowed ? undefined : `This type does not use ${ROUTE_LABEL[route]} for its cover.`}
-              onClick={() => (route === "upload" ? fileInput.current?.click() : run(route as "find" | "generate"))}
+              disabled={pending || locked || autoWorking}
+              title={route === routes[0] ? "Suggested for this type" : undefined}
+              onClick={() =>
+                route === "upload"
+                  ? fileInput.current?.click()
+                  : route === "generate"
+                    ? setPromptOpen((open) => !open)
+                    : run("find")
+              }
               className="inline-flex items-center gap-1.5 rounded-full bg-surface px-3 py-2 text-xs font-medium text-ink-2 transition-colors hover:bg-deep focus-visible:outline-none focus-visible:shadow-[var(--shadow-focus)] disabled:cursor-not-allowed disabled:opacity-40"
             >
               <Icon aria-hidden className="size-3.5" />
@@ -333,11 +384,82 @@ export function CoverCard({
           }}
         />
       </div>
+      {promptOpen && <PromptRow onCancel={() => setPromptOpen(false)} onGenerate={(prompt) => run("generate", undefined, prompt)} />}
       {note && (
         <p role="status" className="border-t border-line px-4 py-2.5 text-xs text-ink-2">
           {note}
         </p>
       )}
     </figure>
+  );
+}
+
+/** One editable line of a block: kept locally while typed, saved when left. */
+function BlockField({
+  label,
+  value,
+  placeholder,
+  onCommit,
+}: {
+  label: string;
+  value: string;
+  placeholder: string;
+  onCommit: (value: string) => void;
+}) {
+  // Reset from outside by the parent's `key`, not an effect.
+  const [draft, setDraft] = useState(value);
+  const commit = () => {
+    const next = draft.replace(/\s+/g, " ").trim();
+    if (next !== value) onCommit(next);
+  };
+  return (
+    <label className="flex flex-col gap-1 text-xs font-medium text-ink-2">
+      {label}
+      <input
+        value={draft}
+        placeholder={placeholder}
+        onChange={(event) => setDraft(event.target.value)}
+        onBlur={commit}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            commit();
+            (event.target as HTMLInputElement).blur();
+          }
+        }}
+        className="cs-input h-9 rounded-lg bg-surface text-sm font-normal text-ink"
+      />
+    </label>
+  );
+}
+
+/** Generate's own box: the editor's words for the picture, or nothing to have them written. */
+function PromptRow({ onGenerate, onCancel }: { onGenerate: (prompt: string) => void; onCancel: () => void }) {
+  const [prompt, setPrompt] = useState("");
+  return (
+    <form
+      className="flex flex-col gap-2 border-t border-line px-4 py-3 sm:flex-row sm:items-center"
+      onSubmit={(event) => {
+        event.preventDefault();
+        onGenerate(prompt);
+      }}
+    >
+      <input
+        autoFocus
+        value={prompt}
+        onChange={(event) => setPrompt(event.target.value)}
+        placeholder="Describe the picture, or leave empty to write it from the article"
+        aria-label="Describe the picture to generate"
+        className="cs-input h-9 flex-1 rounded-lg bg-surface text-sm"
+      />
+      <div className="flex gap-2">
+        <button type="submit" className="cs-btn h-9 px-3 text-sm">
+          Generate
+        </button>
+        <button type="button" onClick={onCancel} className="cs-btn h-9 px-3 text-sm">
+          Cancel
+        </button>
+      </div>
+    </form>
   );
 }

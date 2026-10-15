@@ -3,6 +3,9 @@
 import { unstable_rethrow } from "next/navigation";
 import { requireUser } from "@/lib/session";
 import {
+  autoBlockCore,
+  autoCoverCore,
+  claimAutoImagesCore,
   clearBlockImagesCore,
   drawBlockImageCore,
   findBlockImageCore,
@@ -37,18 +40,38 @@ async function answer<T>(work: () => Promise<T>): Promise<Answer<T>> {
   }
 }
 
+/** An editor's click: any route, whatever the article type; Generate may carry their own prompt. */
 export async function fillBlockAction(
   projectId: string,
   blockId: string,
   route: "find" | "generate" | "draw",
+  prompt?: string,
 ): Promise<Answer<BlockFillResult>> {
   return answer(() =>
     route === "find"
       ? findBlockImageCore(projectId, blockId)
       : route === "generate"
-        ? generateBlockImageCore(projectId, blockId)
+        ? generateBlockImageCore(projectId, blockId, { prompt })
         : drawBlockImageCore(projectId, blockId),
   );
+}
+
+/**
+ * The first, automatic fill after the draft is written (by the type's image
+ * rules). `claimAutoImagesAction` answers true once per article; the browser
+ * then fills the cover and each block one call at a time, so each stays
+ * inside the page's time limit and its card can show it working.
+ */
+export async function claimAutoImagesAction(projectId: string): Promise<Answer<boolean>> {
+  return answer(() => claimAutoImagesCore(projectId));
+}
+
+export async function autoCoverAction(projectId: string): Promise<Answer<BlockFillResult>> {
+  return answer(() => autoCoverCore(projectId));
+}
+
+export async function autoBlockAction(projectId: string, blockId: string): Promise<Answer<BlockFillResult>> {
+  return answer(() => autoBlockCore(projectId, blockId));
 }
 
 const MAX_UPLOAD_BYTES = 8 * 1024 * 1024;
@@ -77,8 +100,12 @@ export async function uploadBlockImageAction(
 }
 
 /** The cover, from the draft stage (proposed direction: Draft and Publish only). */
-export async function fillCoverAction(projectId: string, route: "find" | "generate"): Promise<Answer<BlockFillResult>> {
-  return answer(() => (route === "find" ? findCoverCore(projectId) : generateCoverCore(projectId)));
+export async function fillCoverAction(
+  projectId: string,
+  route: "find" | "generate",
+  prompt?: string,
+): Promise<Answer<BlockFillResult>> {
+  return answer(() => (route === "find" ? findCoverCore(projectId) : generateCoverCore(projectId, { prompt })));
 }
 
 export async function uploadCoverAction(projectId: string, formData: FormData): Promise<Answer<BlockFillResult>> {

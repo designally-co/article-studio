@@ -288,3 +288,17 @@ export function previewWithBlocks(
   const taken = takeSummaryLine(withImages.slice(head.length).replace(/^\s+/, ""));
   return { markdown: taken.summary ? `${head}\n${taken.markdown}` : withImages, summary: taken.summary };
 }
+
+/** A block's lines without the fence, as an editor holds it. */
+export function serializeImageBlockBody(block: ImageBlock): string {
+  return serializeImageBlock(block).split("\n").slice(1, -1).join("\n");
+}
+
+/** The first of img-1 … img-3 not in use, or null when all three are taken. */
+export function nextFreeBlockId(used: Iterable<string>): string | null {
+  const taken = new Set(used);
+  for (let slot = 1; slot <= MAX_BODY_BLOCKS; slot += 1) {
+    if (!taken.has(`img-${slot}`)) return `img-${slot}`;
+  }
+  return null;
+}

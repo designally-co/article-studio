@@ -51,6 +51,15 @@ import type { BlockFillResult, BlockImageView } from "./views";
  * so a trial can be read back from the server log.
  */
 
+/**
+ * How a fill was asked for. `auto`: the first, automatic fill after the draft
+ * is written, held to the article type's image rules. Otherwise the editor
+ * asked, and may use any route (build session, 2026-10-15: "the rule of
+ * having related image is only applied to the auto generated in the first
+ * time"). `prompt`: the editor's own words for Generate.
+ */
+export type FillMode = { auto?: boolean; prompt?: string };
+
 type BlockContext = {
   loaded: LoadedProject;
   labels: ArticleLabels;
@@ -203,17 +212,20 @@ function hintPage(hint: string): { label: string; url: string } | null {
   }
 }
 
-export async function findBlockImageCore(projectId: string, blockId: string): Promise<BlockFillResult> {
+export async function findBlockImageCore(projectId: string, blockId: string, mode: FillMode = {}): Promise<BlockFillResult> {
   const ctx = await loadBlock(projectId, blockId);
-  assertRoute(ctx, "find");
-  const policy = TYPE_IMAGE_POLICY[ctx.labels.type].body;
+  if (mode.auto) assertRoute(ctx, "find");
+  // The rules decide where the first, automatic fill may look; the editor may look anywhere.
+  const policy = mode.auto
+    ? TYPE_IMAGE_POLICY[ctx.labels.type].body
+    : { find: ["cited_pages", "library"] as const };
   const fit = fitFor(ctx);
   const stats = { judged: 0, rejected: 0 };
   const tried: string[] = [];
   /* A case study's evidence and a resource's preview must show THE thing
      itself, so only a picture judged to be the article's subject will do.
      Anything else may be merely related. */
-  const strict = ctx.block.role === "evidence" || ctx.block.role === "preview";
+  const strict = Boolean(mode.auto) && (ctx.block.role === "evidence" || ctx.block.role === "preview");
   let chosen: ReferenceCandidate | null = null;
 
   if (policy.find.includes("cited_pages")) {
@@ -253,7 +265,7 @@ export async function findBlockImageCore(projectId: string, blockId: string): Pr
       title: ctx.title,
       angle: ctx.block.purpose,
       article: ctx.article.slice(0, 3000),
-      seedQuery: ctx.block.searchHint,
+      seedQuery: hintPage(ctx.block.searchHint) ? ctx.block.purpose : ctx.block.searchHint || ctx.block.purpose,
       limit: 1,
       fit,
     });
@@ -271,7 +283,7 @@ export async function findBlockImageCore(projectId: string, blockId: string): Pr
         hintPage(ctx.block.searchHint) ? "what this block needs" : ctx.block.searchHint || "this subject"
       } well enough${
         stats.rejected ? ` (${stats.rejected} picture${stats.rejected === 1 ? "" : "s"} turned down)` : ""
-      }. This block needs a person: upload the picture.`,
+      }. ${mode.auto ? "This block needs a person: upload the picture." : "Try Find again, Generate, Draw or Upload."}`,
       log,
     };
   }
@@ -295,9 +307,9 @@ export async function findBlockImageCore(projectId: string, blockId: string): Pr
 
 /* ------------------------------------------------------------ Generate --- */
 
-export async function generateBlockImageCore(projectId: string, blockId: string): Promise<BlockFillResult> {
+export async function generateBlockImageCore(projectId: string, blockId: string, mode: FillMode = {}): Promise<BlockFillResult> {
   const ctx = await loadBlock(projectId, blockId);
-  assertRoute(ctx, "generate");
+  if (mode.auto) assertRoute(ctx, "generate");
   const options = await imageGenerationOptions();
   const option = options.find(
     (entry) => !entry.capabilities.referenceImagesRequired && entry.capabilities.aspectRatios.includes("3:2"),
@@ -305,8 +317,13 @@ export async function generateBlockImageCore(projectId: string, blockId: string)
   const provider = option ? getImageProvider(option.providerId) : undefined;
   if (!option || !provider) throw new Error("No image generator is configured (add a Fal.ai key in Settings).");
 
+  /* THE EDITOR'S OWN WORDS, when given, are the picture; otherwise the prompt is
+     written from the block's purpose. */
+  const own = mode.prompt?.trim();
   const { image: model } = await getModels();
-  const { text } = await runText({
+  const { text } = own
+    ? { text: own }
+    : await runText({
     model,
     system: imageSystemPromptFor(ctx.labels),
     task: blockImagePromptTask({
@@ -366,9 +383,9 @@ function contextAround(article: string, block: LocatedImageBlock): string {
   return `${before}\n[the figure goes here]\n${after}`.replace(/```image[\s\S]*?```/g, "").trim();
 }
 
-export async function drawBlockImageCore(projectId: string, blockId: string): Promise<BlockFillResult> {
+export async function drawBlockImageCore(projectId: string, blockId: string, mode: FillMode = {}): Promise<BlockFillResult> {
   const ctx = await loadBlock(projectId, blockId);
-  assertRoute(ctx, "draw");
+  if (mode.auto) assertRoute(ctx, "draw");
   const { drafting: model } = await getModels();
   const { text } = await runText({
     model,
@@ -423,7 +440,6 @@ export async function uploadBlockImageCore(
   meta: { credit?: string; sourceUrl?: string },
 ): Promise<BlockFillResult> {
   const ctx = await loadBlock(projectId, blockId);
-  assertRoute(ctx, "upload");
   // The editor is not asked about rights (build session, 2026-10-15): an upload is recorded as their own.
   const rights: Rights = "own";
   const image = await saveBlockImage(ctx, {
@@ -479,7 +495,9 @@ export async function autoFillBlocksCore(
     }
     try {
       const result =
-        route === "draw" ? await drawBlockImageCore(projectId, block.id) : await generateBlockImageCore(projectId, block.id);
+        route === "draw"
+          ? await drawBlockImageCore(projectId, block.id, { auto: true })
+          : await generateBlockImageCore(projectId, block.id, { auto: true });
       (result.image ? out.filled : out.waiting).push(block.id);
     } catch (error) {
       out.failed.push({ blockId: block.id, error: error instanceof Error ? error.message : String(error) });
@@ -557,11 +575,13 @@ async function setCover(projectId: string, imageId: string) {
     .where(eq(projects.id, projectId));
 }
 
-export async function findCoverCore(projectId: string): Promise<BlockFillResult> {
+export async function findCoverCore(projectId: string, mode: FillMode = {}): Promise<BlockFillResult> {
   const loaded = await loadProject(projectId);
   const labels = loaded?.project.inputs.labels;
   if (!loaded || !labels) throw new Error("This article has no labels.");
-  if (!coverRoutesFor(labels).includes("find")) throw new Error(`A ${labels.type.replace("_", " ")} cover is not found online.`);
+  if (mode.auto && !coverRoutesFor(labels).includes("find")) {
+    throw new Error(`A ${labels.type.replace("_", " ")} cover is not found online.`);
+  }
 
   /* ROOM FOR ANOTHER SEARCH. An article keeps at most a few found pictures,
      and every Find adds up to two. When it is nearly full, the ones no image
@@ -578,14 +598,20 @@ export async function findCoverCore(projectId: string): Promise<BlockFillResult>
   const before = new Set((await loadProject(projectId))?.imageReferences.map((reference) => reference.id) ?? []);
 
   const drafted = await generateImagePromptCore(projectId, { variationCount: 1 }).catch(() => null);
-  const found = await findReferenceImagesCore(projectId, { query: drafted?.brief.photoQuery ?? "", limit: 2, oneOfEach: true });
+  const found = await findReferenceImagesCore(projectId, {
+    query: drafted?.brief.photoQuery ?? "",
+    limit: 2,
+    oneOfEach: true,
+    // The editor may look anywhere; the first, automatic fill follows the type.
+    anySource: !mode.auto,
+  });
   /* ONLY WHAT THIS SEARCH FOUND. The list also holds earlier searches'
      pictures, and taking the first of those chose the same cover again. */
   const fresh = found.references.filter((item) => !before.has(item.id));
   const subject = fresh.find((item) => found.subjectIds?.includes(item.id));
   // A case study's cover must show the project itself: a merely related picture will not do.
   const candidates =
-    labels.type === "case_study"
+    mode.auto && labels.type === "case_study"
       ? [subject]
       : [subject ?? fresh.find((item) => item.origin === "article_source"), fresh.find((item) => item.origin === "open_license")];
   const tried: string[] = [];
@@ -602,7 +628,7 @@ export async function findCoverCore(projectId: string): Promise<BlockFillResult>
   return {
     image: null,
     note: `${found.note ?? "No other picture good enough for the cover was found. Try again, generate one, or upload one."}${
-      labels.type === "case_study" ? " A case study's cover must be the project itself: upload it." : ""
+      mode.auto && labels.type === "case_study" ? " A case study's cover must be the project itself: upload it." : ""
     }`,
     log: { route: "find", tried, judged: 0, rejected: 0 },
   };
@@ -632,15 +658,18 @@ export async function removeCoverCore(projectId: string): Promise<null> {
   return null;
 }
 
-export async function generateCoverCore(projectId: string): Promise<BlockFillResult> {
+export async function generateCoverCore(projectId: string, mode: FillMode = {}): Promise<BlockFillResult> {
   const loaded = await loadProject(projectId);
   const labels = loaded?.project.inputs.labels;
   if (!loaded || !labels) throw new Error("This article has no labels.");
-  if (!coverRoutesFor(labels).includes("generate")) throw new Error("A case study never uses a generated cover.");
+  if (mode.auto && !coverRoutesFor(labels).includes("generate")) throw new Error("A case study never uses a generated cover.");
   const options = await imageGenerationOptions();
   const option = options.find((entry) => !entry.capabilities.referenceImagesRequired);
   if (!option) throw new Error("No image generator is configured (add a Fal.ai key in Settings).");
-  const drafted = await generateImagePromptCore(projectId, { variationCount: 1 });
+  const own = mode.prompt?.trim();
+  const drafted = own
+    ? { prompt: finishImagePrompt(own, "photograph", false), variants: [] as { prompt: string }[] }
+    : await generateImagePromptCore(projectId, { variationCount: 1 });
   const wanted = IMAGE_ASPECT_RATIOS.find((ratio) => ratio === loaded.project.inputs.imageAspectRatio);
   const aspectRatio: ImageAspectRatio =
     wanted && option.capabilities.aspectRatios.includes(wanted) ? wanted : "16:9";
@@ -651,6 +680,7 @@ export async function generateCoverCore(projectId: string): Promise<BlockFillRes
     variationCount: 1,
     referenceIds: [],
     variantPrompts: drafted.variants.map((variant) => variant.prompt),
+    byEditor: !mode.auto,
   });
   const first = run.images[0];
   if (!first) throw new Error(run.failureReason ?? "No cover was generated.");
@@ -679,4 +709,57 @@ export async function uploadCoverCore(projectId: string, file: { data: Buffer; n
     .returning();
   await setCover(projectId, row.id);
   return { image: blockImageView(row), log: { route: "upload", tried: [], judged: 0, rejected: 0 } };
+}
+
+/* ------------------------------------------------- First, automatic fill --- */
+
+/**
+ * Claim the one automatic fill an article gets, right after its first draft.
+ * True only for the first caller: a second tab, a reload or a regenerated
+ * draft gets false, and from then on every picture is the editor's choice.
+ */
+export async function claimAutoImagesCore(projectId: string): Promise<boolean> {
+  const db = await getDb();
+  const rows = await db
+    .update(projects)
+    .set({
+      inputs: sql`coalesce(${projects.inputs}, '{}'::jsonb) || ${JSON.stringify({ imagesAutoFilledAt: new Date().toISOString() })}::jsonb`,
+      updatedAt: new Date(),
+    })
+    .where(and(eq(projects.id, projectId), sql`${projects.inputs} ->> 'imagesAutoFilledAt' is null`, sql`${projects.inputs} -> 'labels' is not null`))
+    .returning();
+  return rows.length > 0;
+}
+
+/** The cover, by the type's rule: found where the type allows, else generated where it allows. */
+export async function autoCoverCore(projectId: string): Promise<BlockFillResult> {
+  const labels = await labelsOf(projectId);
+  const routes = coverRoutesFor(labels);
+  let found: BlockFillResult | null = null;
+  if (routes.includes("find")) {
+    found = await findCoverCore(projectId, { auto: true });
+    if (found.image) return found;
+  }
+  if (routes.includes("generate")) {
+    try {
+      return await generateCoverCore(projectId, { auto: true });
+    } catch (error) {
+      return {
+        image: null,
+        note: `${found?.note ? `${found.note} ` : ""}No cover was generated: ${error instanceof Error ? error.message : String(error)}`,
+        log: { route: "generate", tried: [], judged: 0, rejected: 0 },
+      };
+    }
+  }
+  return found ?? { image: null, note: "This type's cover waits for a person.", log: { route: "upload", tried: [], judged: 0, rejected: 0 } };
+}
+
+/** One body block, by the type's rule (its suggested route, held to what the type allows). */
+export async function autoBlockCore(projectId: string, blockId: string): Promise<BlockFillResult> {
+  const ctx = await loadBlock(projectId, blockId);
+  const route = effectiveRoute(ctx.labels.type, ctx.block.suggestedRoute);
+  if (route === "find") return findBlockImageCore(projectId, blockId, { auto: true });
+  if (route === "draw") return drawBlockImageCore(projectId, blockId, { auto: true });
+  if (route === "generate") return generateBlockImageCore(projectId, blockId, { auto: true });
+  return { image: null, note: "This picture waits for a person: upload it.", log: { route: "upload", tried: [], judged: 0, rejected: 0 } };
 }

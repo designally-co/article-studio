@@ -90,6 +90,8 @@ export async function findReferenceImagesCore(
      * photograph standing by for when that picture is not good enough.
      */
     oneOfEach?: boolean;
+    /** PREVIEW ONLY: the editor asked, so the type's cover sources do not apply. */
+    anySource?: boolean;
   }
 ): Promise<FoundReferences> {
   const loaded = await loadProject(projectId);
@@ -151,8 +153,8 @@ export async function findReferenceImagesCore(
   const coverFit: ImageFit | null = labels
     ? { pillar: labels.pillar, type: labels.type, role: "cover", narrowers: [labels.topic, ...labels.keywords] }
     : null;
-  const useCitedPages = !labels || isCoverSourceAllowed(labels.type, "cited_pages");
-  const useLibrary = !labels || isCoverSourceAllowed(labels.type, "library");
+  const useCitedPages = !labels || options?.anySource || isCoverSourceAllowed(labels.type, "cited_pages");
+  const useLibrary = !labels || options?.anySource || isCoverSourceAllowed(labels.type, "library");
 
   /* TWO PLACES AT ONCE. The pages the article cites come first: their lead
      image is usually the work itself, photographed by the studio that made it,
@@ -288,6 +290,8 @@ export async function generateImagesCore(
      * should govern every image rather than be silently replaced.
      */
     variantPrompts?: string[];
+    /** PREVIEW ONLY: the editor asked for this, so the type's cover rule does not apply. */
+    byEditor?: boolean;
   }
 ): Promise<GenerationRunResult> {
   if (!request || typeof request !== "object") throw new Error("Invalid generation request.");
@@ -330,7 +334,7 @@ export async function generateImagesCore(
      (a case study: real project images only) is refused here, so no path to
      the generator gets round it. */
   const labels = project.inputs.labels;
-  if (labels && !isCoverSourceAllowed(labels.type, "generate")) {
+  if (labels && !request.byEditor && !isCoverSourceAllowed(labels.type, "generate")) {
     throw new Error("A case study never uses a generated image. Use a picture from the studio's own project page.");
   }
   const references: ReferenceImageInput[] = [];
