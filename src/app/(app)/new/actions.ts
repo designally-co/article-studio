@@ -13,6 +13,16 @@ import { buildSystemPrompt, getModels, runJson } from "@/lib/anthropic";
 import { articleSetupTask } from "@/prompts/tasks";
 import { loadDirections } from "@/lib/pipeline/topics";
 import type { TopicIdea } from "@/lib/pipeline/views";
+import {
+  LABEL_KEYWORDS,
+  LABEL_PILLARS,
+  LABEL_TOPICS,
+  LABEL_TYPES,
+  canonicalKeyword,
+  validateLabels,
+  type ArticleLabels,
+} from "@/lib/direction/labels";
+import { proposeLabelsTask } from "@/prompts/direction";
 
 /**
  * Decides whether free-text input is a brief (instructions to honor) or a topic
@@ -126,6 +136,61 @@ export async function inferArticleSetupAction(input: {
 }
 
 /**
+ * PREVIEW ONLY: propose labels for the proposed article direction, for the
+ * editor to confirm. Never throws: when the model cannot be asked, or answers
+ * with a combination that is not allowed, a safe default comes back with a
+ * note, and the editor chooses.
+ */
+export async function proposeLabelsAction(input: {
+  text: string;
+  directionName?: string;
+}): Promise<{ labels: ArticleLabels; note?: string }> {
+  await requireUser();
+  const fallbackKeywords = [canonicalKeyword(input.directionName ?? ""), "Design Process", "Visual Identity"]
+    .filter((value, index, list): value is string => !!value && list.indexOf(value) === index)
+    .slice(0, 2);
+  const fallback: ArticleLabels = {
+    pillar: "creative_insights",
+    type: "explanation",
+    topic: "branding",
+    topic2: null,
+    keywords: fallbackKeywords,
+  };
+  try {
+    const models = await getModels();
+    const { data } = await runJson<Record<string, unknown>>({
+      model: models.research,
+      system: "You label articles for a design publication. Answer with JSON only.",
+      task: proposeLabelsTask({ text: input.text.trim().slice(0, 4000), directionName: input.directionName }),
+      schema: {
+        type: "object",
+        properties: {
+          pillar: { type: "string", enum: [...LABEL_PILLARS] },
+          type: { type: "string", enum: [...LABEL_TYPES] },
+          topic: { type: "string", enum: [...LABEL_TOPICS] },
+          topic2: { type: "string", enum: ["", ...LABEL_TOPICS] },
+          keywords: { type: "array", items: { type: "string", enum: [...LABEL_KEYWORDS] } },
+        },
+        required: ["pillar", "type", "topic", "topic2", "keywords"],
+        additionalProperties: false,
+      },
+      maxTokens: 300,
+      cache: false,
+      projectId: null,
+      stage: "article_labels",
+    });
+    const check = validateLabels(data);
+    if (check.ok) return { labels: check.labels };
+    return { labels: fallback, note: `The proposed labels were not allowed (${check.errors.join(" ")}). Choose them here.` };
+  } catch (reason) {
+    return {
+      labels: fallback,
+      note: `Labels could not be proposed (${reason instanceof Error ? reason.message : "unknown error"}). Choose them here.`,
+    };
+  }
+}
+
+/**
  * Create the article and say where it lives.
  *
  * RETURNS THE ADDRESS, NOT A REDIRECT. This ended in `redirect()`, which works
@@ -197,6 +262,22 @@ async function createProject(formData: FormData): Promise<string> {
   }
   const seedText = chosenTopic || workingTitle || articleInput;
 
+  /* PREVIEW ONLY: labels for the proposed article direction. Checked again
+     here, whatever the browser sent: an invalid combination is refused. */
+  let labels: ArticleLabels | undefined;
+  const labelsRaw = String(formData.get("labels") ?? "").trim();
+  if (labelsRaw) {
+    let parsed: unknown = null;
+    try {
+      parsed = JSON.parse(labelsRaw);
+    } catch {
+      throw new Error("The article labels could not be read.");
+    }
+    const check = validateLabels(parsed);
+    if (!check.ok) throw new Error(`These labels are not allowed: ${check.errors.join(" ")}`);
+    labels = check.labels;
+  }
+
   const inputs: ProjectInputs = {
     articleMode: "editorial",
     brief: inputKind === "brief" ? articleInput : undefined,
@@ -204,6 +285,7 @@ async function createProject(formData: FormData): Promise<string> {
     editorialPeriod: extractEditorialPeriod(seedText),
     editorialReader: "Designers and creative teams",
     editorialEntryCount: 10,
+    ...(labels ? { labels } : {}),
   };
 
   let selectedTopic: SelectedTopic | null = null;

@@ -1731,3 +1731,152 @@ main:has(.cs-create-page),
   background: #c73f29; /* the orange that is legal as a mark on a light ground */
   clip-path: inset(0 0 0 73.79%);
 }
+
+/* PREVIEW ONLY: the always-editable draft (proposed article direction). The
+   article fills the editor box, list items do not double their spacing with
+   the paragraph ProseMirror puts inside each, and a card's own margin is the
+   only space around it. */
+.prose-editor {
+  max-width: none;
+}
+.prose-editor .ProseMirror > :first-child {
+  margin-top: 0;
+}
+.prose-editor li > p {
+  margin: 0;
+}
+.prose-editor [data-image-block-node] > figure {
+  margin: 1.75em 0;
+}
+.prose-editor .ProseMirror {
+  min-height: 24rem;
+  caret-color: var(--accent);
+}
+/* The part shown while the rest is prepared ends where its text ends. */
+.prose-editor.prose-editor-preview .ProseMirror {
+  min-height: 0;
+}
+
+/* PREVIEW ONLY: room for the editor's vertical toolbar in the column before
+   the article (the same tracks as RAIL_GRID, with the first one never narrower
+   than the toolbar and its gap). Unlayered, so it wins over the utility. */
+@media (min-width: 64rem) {
+  .rail-grid-with-tools {
+    grid-template-columns:
+      minmax(5rem, 1fr)
+      minmax(0, var(--rail-content, 52rem))
+      minmax(calc(var(--rail-w) + var(--rail-gap)), 1fr);
+  }
+}
+
+/* PREVIEW ONLY: the empty picture's gentle float and the spark's twinkle. */
+@media (prefers-reduced-motion: no-preference) {
+  .cs-empty-picture-front {
+    animation: cs-empty-float 4.8s ease-in-out infinite;
+    transform-box: fill-box;
+    transform-origin: center;
+  }
+  .cs-empty-picture-spark {
+    animation: cs-empty-spark 2.4s ease-in-out infinite;
+    transform-box: fill-box;
+    transform-origin: center;
+  }
+}
+@keyframes cs-empty-float {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  50% { transform: translateY(-3px) rotate(-1deg); }
+}
+@keyframes cs-empty-spark {
+  0%, 100% { transform: scale(1); opacity: 0.9; }
+  50% { transform: scale(0.7); opacity: 0.5; }
+}
+
+/* PREVIEW ONLY: the empty picture acting out what is happening to it. */
+@media (prefers-reduced-motion: no-preference) {
+  /* Find: a loupe sweeps the prints, which shuffle a little. */
+  .cs-empty-picture[data-activity="find"] .cs-ep-loupe {
+    animation: cs-ep-sweep 1.8s ease-in-out infinite;
+  }
+  .cs-empty-picture[data-activity="find"] .cs-ep-back-a {
+    animation: cs-ep-shuffle-a 1.8s ease-in-out infinite;
+    transform-box: fill-box;
+    transform-origin: center;
+  }
+  /* Generate and the first fill: a shine passes over the picture, sparks twinkle. */
+  .cs-empty-picture .cs-ep-shine {
+    animation: cs-ep-shine 1.6s ease-in-out infinite;
+  }
+  .cs-empty-picture[data-activity="generate"] .cs-empty-picture-spark,
+  .cs-empty-picture[data-activity="generate"] .cs-ep-spark-2,
+  .cs-empty-picture[data-activity="generate"] .cs-ep-spark-3 {
+    animation: cs-empty-spark 1.2s ease-in-out infinite;
+    transform-box: fill-box;
+    transform-origin: center;
+  }
+  .cs-empty-picture[data-activity="generate"] .cs-ep-spark-2 { animation-delay: 0.4s; }
+  .cs-empty-picture[data-activity="generate"] .cs-ep-spark-3 { animation-delay: 0.8s; }
+  /* Draw: the hill draws itself behind a pen, then the sun comes up. */
+  .cs-empty-picture[data-activity="draw"] .cs-ep-hill {
+    stroke-dasharray: 1;
+    animation: cs-ep-draw 2.4s ease-in-out infinite;
+  }
+  .cs-empty-picture[data-activity="draw"] .cs-ep-hill-fill,
+  .cs-empty-picture[data-activity="draw"] .cs-ep-sun {
+    animation: cs-ep-fade 2.4s ease-in-out infinite;
+  }
+  .cs-empty-picture[data-activity="draw"] .cs-ep-pen {
+    offset-path: path("M58 104 L88 66 L104 80 L116 70 L162 104");
+    offset-rotate: 0deg;
+    animation: cs-ep-pen 2.4s ease-in-out infinite;
+  }
+  /* Upload: the front print rises into place under an arrow. */
+  .cs-empty-picture[data-activity="upload"] .cs-empty-picture-front {
+    animation: cs-ep-rise 1.6s cubic-bezier(0.2, 0.8, 0.2, 1) infinite;
+  }
+  .cs-empty-picture[data-activity="upload"] .cs-ep-arrow {
+    animation: cs-ep-arrow 1.6s ease-in-out infinite;
+  }
+  /* Busy of any kind: the crop marks breathe. */
+  .cs-empty-picture:not([data-activity="idle"]) .cs-ep-crop {
+    animation: cs-ep-breathe 1.6s ease-in-out infinite;
+  }
+}
+@keyframes cs-ep-sweep {
+  0% { transform: translate(-30px, 6px); }
+  50% { transform: translate(28px, -8px); }
+  100% { transform: translate(-30px, 6px); }
+}
+@keyframes cs-ep-shuffle-a {
+  0%, 100% { transform: rotate(-9deg) translateX(0); }
+  50% { transform: rotate(-12deg) translateX(-4px); }
+}
+@keyframes cs-ep-shine {
+  0% { transform: translateX(-30px) skewX(-18deg); }
+  100% { transform: translateX(150px) skewX(-18deg); }
+}
+@keyframes cs-ep-draw {
+  0% { stroke-dashoffset: 1; }
+  60%, 100% { stroke-dashoffset: 0; }
+}
+@keyframes cs-ep-fade {
+  0%, 55% { opacity: 0; }
+  75%, 100% { opacity: 0.9; }
+}
+@keyframes cs-ep-pen {
+  0% { offset-distance: 0%; opacity: 1; }
+  60% { offset-distance: 100%; opacity: 1; }
+  70%, 100% { offset-distance: 100%; opacity: 0; }
+}
+@keyframes cs-ep-rise {
+  0% { transform: translateY(26px); opacity: 0; }
+  45%, 100% { transform: translateY(0); opacity: 1; }
+}
+@keyframes cs-ep-arrow {
+  0% { transform: translateY(10px); opacity: 0; }
+  40% { opacity: 1; }
+  100% { transform: translateY(-8px); opacity: 0; }
+}
+@keyframes cs-ep-breathe {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}

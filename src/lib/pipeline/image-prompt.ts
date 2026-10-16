@@ -4,7 +4,7 @@ import { loadProject } from "@/lib/projects";
 import { loadStoredImage } from "@/lib/image/storage";
 import { SchemaValidationError, containsThai } from "@/lib/ai/schemas";
 import { imagePromptTask, articleVisualBriefTask } from "@/prompts/tasks";
-import { IMAGE_SYSTEM_PROMPT } from "@/prompts/system";
+import { imageSystemPromptFor } from "@/prompts/system";
 import {
   IMAGE_MEDIUMS,
   MAX_PROMPT_VARIANTS,
@@ -69,18 +69,22 @@ export async function generateImagePromptCore(
     return [{ base64: stored.data.toString("base64"), mediaType: stored.mimeType }];
   })();
   const hasReferenceImage = Boolean(referenceImage);
+  // Preview of the proposed direction: the pillar picks the style. Null keeps the current one.
+  const labels = loaded.project.inputs.labels ?? null;
+  const imageSystem = imageSystemPromptFor(labels);
 
   const { data: brief } = await runJson<ArticleVisualBrief>({
     model: drafting,
     // NOT buildSystemPrompt: that carries the brand's voice, terminology and
     // guidelines, which dressed every article's image in the publisher's own
     // identity. See IMAGE_SYSTEM_PROMPT.
-    system: IMAGE_SYSTEM_PROMPT,
+    system: imageSystem,
     task: articleVisualBriefTask({
       title,
       article: article.slice(0, 24000),
       hasReferenceImage,
       variantCount,
+      labels,
     }),
     images: referenceImage,
     schema: {
@@ -145,11 +149,12 @@ export async function generateImagePromptCore(
       variantCount: scenes.length,
       siblingScenes: scenes.filter((_, other) => other !== index).map((entry) => entry.scene),
       hasReferenceImage,
+      labels,
     });
     const run = (extra?: string) =>
       runText({
         model: drafting,
-        system: IMAGE_SYSTEM_PROMPT,
+        system: imageSystem,
         task: extra ? `${taskText}\n\n${extra}` : taskText,
         maxTokens: 650,
         projectId,

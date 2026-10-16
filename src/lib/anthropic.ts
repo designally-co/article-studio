@@ -19,6 +19,7 @@ import type {
 } from "@/db/schema";
 import {
   SYSTEM_PROMPT,
+  DIRECTION_SYSTEM_PROMPT,
   JSON_CONTRACT,
   BRAND_INSIGHT_MODE_RULES,
   EDITORIAL_MODE_RULES,
@@ -221,11 +222,12 @@ function webSearchTool(maxUses: number) {
 export type SystemLayers = { shared: string; context: string };
 
 export function buildSystemLayers(ctx: PipelineContext): SystemLayers {
+  const labels = ctx.inputs.labels;
   const shared = [
-    SYSTEM_PROMPT,
+    labels ? DIRECTION_SYSTEM_PROMPT : SYSTEM_PROMPT,
     ctx.inputs.articleMode === "editorial" ? EDITORIAL_MODE_RULES : BRAND_INSIGHT_MODE_RULES,
     buildBrandLayer(ctx.brand),
-    buildFormatLayer(ctx.articleRules, ctx.category, ctx.language),
+    buildFormatLayer(ctx.articleRules, ctx.category, ctx.language, labels),
   ]
     .filter(Boolean)
     .join("\n\n");

@@ -37,7 +37,7 @@ export function WorkProgress({
   steps: readonly WorkStep[];
   /** What the work usually takes. Without it no countdown is shown — for a wait too short to need one. */
   typicalSeconds?: number;
-  /** A line above the step, e.g. the article's title. Optional. */
+  /** A quieter line under the step, e.g. the article's title. Optional. */
   heading?: string;
   /** `compact` for a side rail; `regular` for a card on its own. */
   size?: "regular" | "compact";
@@ -66,25 +66,20 @@ export function WorkProgress({
           <WorkArt kind={art} width={compact ? 120 : 160} />
         </div>
       )}
-      {heading && (
-        <p
-          className={
-            compact
-              ? "text-sm font-semibold text-ink"
-              : "font-heading text-[length:var(--text-h3)] font-medium leading-snug tracking-tight text-ink"
-          }
-        >
-          {heading}
-        </p>
-      )}
-
-      {/* Keyed on the step, so each new one fades in rather than swapping. */}
+      {/* THE STEP FIRST, THE TITLE SECOND (build session, 2026-10-15: "the
+          status must be the first priority, the title is secondary"). Keyed on
+          the step, so each new one fades in rather than swapping. */}
       <p
         key={step}
-        className={`cs-step-in font-medium text-accent-press ${compact ? "mt-2 text-sm" : "mt-5 text-base"}`}
+        className={`cs-step-in ${
+          compact
+            ? "text-sm font-semibold text-ink"
+            : "font-heading text-[length:var(--text-h3)] font-medium leading-snug tracking-tight text-ink"
+        }`}
       >
         {step}
       </p>
+      {heading && <p className={`text-ink-2 ${compact ? "mt-1 text-xs" : "mx-auto mt-2 max-w-md text-sm"}`}>{heading}</p>}
 
       <span
         className={`block h-[3px] w-full overflow-hidden rounded-full ${compact ? "mt-2.5" : "mx-auto mt-4 max-w-xs"}`}

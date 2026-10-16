@@ -18,6 +18,12 @@ const STAGES = [
   { n: 3, label: "Publish", target: 6 },
 ];
 
+/** PREVIEW ONLY: the proposed direction has two steps; its cover is chosen in Draft. */
+const TWO_STAGES = [
+  { n: 1, label: "Draft", target: 4 },
+  { n: 3, label: "Publish", target: 6 },
+];
+
 function visibleStage(stage: number, finalizeView?: "images" | "complete") {
   if (stage <= 5) return 1;
   if (finalizeView === "complete") return 3;
@@ -31,8 +37,11 @@ export function Stepper({
   current,
   reached,
   finalizeView,
+  twoSteps = false,
 }: {
   projectId: string;
+  /** PREVIEW ONLY: Draft and Publish, no Image step (proposed article direction). */
+  twoSteps?: boolean;
   /** the stage currently being viewed */
   current: number;
   /** the furthest stage reached (upper bound for navigation) */
@@ -42,8 +51,9 @@ export function Stepper({
      matters — the stepper does not need to say it a second time in a colour. */
   finalizeView?: "images" | "complete";
 }) {
-  const currentVisible = visibleStage(current, finalizeView);
-  const reachedVisible = visibleStage(reached);
+  const steps = twoSteps ? TWO_STAGES : STAGES;
+  const currentVisible = twoSteps ? (current <= 5 ? 1 : 3) : visibleStage(current, finalizeView);
+  const reachedVisible = twoSteps ? (reached <= 5 ? 1 : 3) : visibleStage(reached);
 
   const scroller = useRef<HTMLElement>(null);
   const activeItem = useRef<HTMLLIElement>(null);
@@ -153,7 +163,7 @@ export function Stepper({
       className="-mx-3 overflow-x-hidden px-3 [mask-image:linear-gradient(to_right,transparent_0,#000_76px,#000_calc(100%-64px),transparent_100%)] sm:-mx-8 sm:px-8 lg:mx-0 lg:px-0 lg:[mask-image:none]"
     >
       <ol className="mx-auto flex w-fit items-center gap-1">
-        {STAGES.map((s, i) => {
+        {steps.map((s, i) => {
           const active = s.n === currentVisible;
           const navigable = s.n <= reachedVisible;
           /* SMALL, DELIBERATELY. A 44px thumb target was the reflex and the
@@ -230,7 +240,7 @@ export function Stepper({
                   is not what makes it legible, it is what makes the row wide,
                   and on a phone every pixel here pushes the next step further
                   off the screen. 12px, in the stronger ink. */}
-              {i < STAGES.length - 1 && (
+              {i < steps.length - 1 && (
                 <span aria-hidden className="mx-1 h-px w-3 shrink-0 bg-line-strong sm:w-4" />
               )}
             </li>

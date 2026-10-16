@@ -9,6 +9,14 @@ import { ArrowRight, Eye, Pencil, X } from "lucide-react";
 import { SHEET_CLEARANCE, StageAction, StageSheet } from "./stage-mobile";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { deleteRevisionAction, goToFinalizeAction, saveDraftContentAction } from "../actions";
+import { autoBlockAction, autoCoverAction, claimAutoImagesAction, clearBlockAction } from "../block-actions";
+import { CoverCard, ImageBlockCard } from "./image-block-card";
+import { ArticleEditor, type BlockControls } from "./article-editor";
+import type { BlockRoute } from "@/lib/direction/image-routing";
+import { parseImageBlockBody, parseImageBlocks, removeImageBlock, serializeImageBlockBody } from "@/lib/direction/image-blocks";
+import { MAX_BODY_BLOCKS, TYPE_IMAGE_POLICY } from "@/lib/direction/image-routing";
+import type { LabelType } from "@/lib/direction/labels";
+import type { BlockImageView } from "@/lib/pipeline/views";
 
 const SUGGESTIONS = [
   "Make the introduction shorter",
@@ -32,12 +40,25 @@ export function DraftsStage({
   refinements,
   targetLength,
   anthropicReady,
+  labelsType,
+  blockImages: initialBlockImages = {},
+  cover: initialCover = null,
+  coverRoutes = [],
+  imagesAutoFilled = true,
 }: {
   projectId: string;
   drafts: { id: string; variationNo: number; contentMd: string; isSelected: boolean }[];
   refinements: Revision[];
   targetLength: string;
   anthropicReady: boolean;
+  /** PREVIEW ONLY: the article's type when it has labels (proposed direction); its image blocks render as cards. */
+  labelsType?: LabelType;
+  blockImages?: Record<string, BlockImageView>;
+  /** PREVIEW ONLY: the cover is chosen here too; the steps are Draft and Publish. */
+  cover?: BlockImageView | null;
+  coverRoutes?: BlockRoute[];
+  /** PREVIEW ONLY: whether the one automatic fill of the pictures has already happened. */
+  imagesAutoFilled?: boolean;
 }) {
   const existing = drafts.find((draft) => draft.isSelected) ?? drafts[0];
   const [draft, setDraft] = useState<DraftView>({
@@ -57,6 +78,176 @@ export function DraftsStage({
   const autoStarted = useRef(false);
   const editSnapshotSaved = useRef(false);
   const editBase = useRef(existing?.contentMd ?? "");
+  const [blockImages, setBlockImages] = useState(initialBlockImages);
+  const [cover, setCover] = useState(initialCover);
+  const [toolbarHost, setToolbarHost] = useState<HTMLDivElement | null>(null);
+  const twoSteps = Boolean(labelsType);
+  /* THE FIRST PICTURES COME WITH THE DRAFT (build session, 2026-10-15). Once
+     the draft exists, the cover and every image block are filled by the type's
+     image rules, one call at a time so each card shows it working. Only once
+     per article, and only what is still empty; after that every picture is the
+     editor's choice. */
+  const [autoWorking, setAutoWorking] = useState<string | null>(null);
+  const [autoNote, setAutoNote] = useState<string | null>(null);
+  const autoClaimed = useRef(imagesAutoFilled);
+  /* THE ARTICLE SHOWS WHEN ITS FIRST PICTURES ARE READY (build session,
+     2026-10-15: "do not show the content [until] the initial images are
+     ready"). On the first arrival a skeleton of the page stands in for it,
+     with one line saying what is being done. */
+  const [preparing, setPreparing] = useState(twoSteps && !imagesAutoFilled);
+  type PrepStep = { id: string; label: string; state: "waiting" | "working" | "done" | "empty" };
+  const [prepSteps, setPrepSteps] = useState<PrepStep[]>([]);
+  const markStep = (id: string, state: PrepStep["state"]) =>
+    setPrepSteps((steps) => steps.map((step) => (step.id === id ? { ...step, state } : step)));
+  const continueLabel = twoSteps ? "Continue to publish" : "Continue to images";
+  const bodyPolicy = labelsType ? TYPE_IMAGE_POLICY[labelsType].body : null;
+  const addImage = bodyPolicy
+    ? {
+        /* The type's count only shapes the first draft; the editor may add up to
+           the three slots any article has (build session, 2026-10-15). */
+        max: MAX_BODY_BLOCKS,
+        noneReason: "",
+        newBlock: (id: string) =>
+          serializeImageBlockBody({
+            id,
+            role: bodyPolicy.roles[0] ?? null,
+            purpose: "",
+            caption: "",
+            alt: "",
+            suggestedRoute: bodyPolicy.routes[0] ?? "upload",
+            searchHint: "",
+          }),
+      }
+    : undefined;
+  const editorMode = twoSteps && Boolean(draft.contentMd) && !draft.streaming && !revising && !preparing;
+  /* How much of the page is ready while the first pictures are added: up to
+     and including the step being worked on. Null while the text is still
+     being written or the list of pictures is not known yet. */
+  const reveal = useMemo(() => {
+    if (!preparing || draft.streaming || !draft.contentMd || prepSteps.length === 0) return null;
+    const next = prepSteps.find((step) => step.state === "waiting" || step.state === "working");
+    const blocks = parseImageBlocks(draft.contentMd);
+    const blockSteps = prepSteps.filter((step) => step.id !== "cover");
+    if (!next) return { text: draft.contentMd, complete: true, restImages: 0 };
+    if (next.id === "cover") return { text: "", complete: false, restImages: blockSteps.length };
+    const at = blocks.find((block) => block.id === next.id);
+    if (!at) return { text: draft.contentMd, complete: true, restImages: 0 };
+    const after = blockSteps.slice(blockSteps.findIndex((step) => step.id === next.id) + 1).length;
+    return { text: draft.contentMd.slice(0, at.end), complete: false, restImages: after };
+  }, [preparing, draft.streaming, draft.contentMd, prepSteps]);
+
+  /* PREVIEW ONLY: removing a block takes it out of the draft (saved at once,
+     with the version before kept) and drops the picture that filled it. */
+  function removeBlock(blockId: string) {
+    if (!draft.id) return;
+    const before = draft.contentMd;
+    const next = removeImageBlock(before, blockId);
+    setDraft((current) => ({ ...current, contentMd: next }));
+    setBlockImages((current) => {
+      const copy = { ...current };
+      delete copy[blockId];
+      return copy;
+    });
+    addLocalRevision("Version before removing an image block", before);
+    const draftId = draft.id;
+    startTransition(async () => {
+      await saveDraftContentAction(draftId, next, true, `Removed image block ${blockId}`);
+      await clearBlockAction(projectId, blockId);
+    });
+  }
+
+  useEffect(() => {
+    if (!twoSteps || autoClaimed.current || !draft.id || !draft.contentMd || draft.streaming) return;
+    autoClaimed.current = true;
+    const markdown = draft.contentMd;
+    void (async () => {
+      const claim = await claimAutoImagesAction(projectId);
+      if (!claim.ok || !claim.value) {
+        setPreparing(false);
+        return;
+      }
+      const todo = [
+        ...(cover ? [] : [{ id: "cover", label: "The cover" }]),
+        ...parseImageBlocks(markdown)
+          .filter((block) => !blockImages[block.id])
+          .map((block) => ({ id: block.id, label: `Image ${block.id.replace(/^img-/, "")}` })),
+      ];
+      setPrepSteps(todo.map((step) => ({ ...step, state: "waiting" as const })));
+      const empty: string[] = [];
+      let tried = 0;
+      if (!cover) {
+        tried += 1;
+        setAutoWorking("cover");
+        markStep("cover", "working");
+        const result = await autoCoverAction(projectId);
+        if (result.ok && result.value.image) {
+          setCover(result.value.image);
+          markStep("cover", "done");
+        } else {
+          empty.push("the cover");
+          markStep("cover", "empty");
+        }
+      }
+      for (const block of parseImageBlocks(markdown)) {
+        if (blockImages[block.id]) continue;
+        tried += 1;
+        setAutoWorking(block.id);
+        markStep(block.id, "working");
+        const result = await autoBlockAction(projectId, block.id);
+        if (result.ok && result.value.image) {
+          const image = result.value.image;
+          setBlockImages((current) => ({ ...current, [block.id]: image }));
+          markStep(block.id, "done");
+        } else {
+          empty.push(block.id);
+          markStep(block.id, "empty");
+        }
+      }
+      setAutoWorking(null);
+      setPreparing(false);
+      if (tried === 0) return;
+      setAutoNote(
+        empty.length
+          ? `Pictures added by the image rules. Still empty: ${empty.join(", ")}. Fill them with Find, Generate, Draw or Upload.`
+          : "Pictures added by the image rules. Change any of them with Find, Generate, Draw, Upload or Remove.",
+      );
+    })();
+    // Runs once, when the first draft is there.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [twoSteps, draft.id, draft.contentMd, draft.streaming]);
+
+  // A draft that fails to arrive shows its error, not a screen that never ends.
+  useEffect(() => {
+    if (draft.error && preparing) setPreparing(false);
+  }, [draft.error, preparing]);
+
+  const renderImageBlock = labelsType
+    ? (raw: string, controls?: BlockControls) => {
+        const block = parseImageBlockBody(raw);
+        return (
+          <ImageBlockCard
+            key={block.id}
+            projectId={projectId}
+            block={block}
+            type={labelsType}
+            image={blockImages[block.id] ?? null}
+            locked={dirty || draft.streaming || autoWorking !== null}
+            autoWorking={autoWorking === block.id}
+            onImage={(blockId, image) =>
+              setBlockImages((current) => {
+                const copy = { ...current };
+                if (image) copy[blockId] = image;
+                else delete copy[blockId];
+                return copy;
+              })
+            }
+            /* Inside the editor the slot is a node: it is removed there and the
+               article saves itself. In the read-only view the Markdown is edited. */
+            onRemove={controls ? () => controls.remove() : removeBlock}
+          />
+        );
+      }
+    : undefined;
 
   /**
    * Add a version, unless we already hold that exact text.
@@ -241,6 +432,7 @@ export function DraftsStage({
   function continueToImages() {
     const formData = new FormData();
     formData.set("projectId", projectId);
+    if (twoSteps) formData.set("view", "complete");
     startTransition(() => goToFinalizeAction(formData));
   }
 
@@ -252,7 +444,7 @@ export function DraftsStage({
      own `px-5` so its dividers still run edge to edge, which is why the sheet
      takes them `flush`. */
   const cannotContinue =
-    !draft.id || !draft.contentMd || draft.streaming || revising || dirty || pending;
+    !draft.id || !draft.contentMd || draft.streaming || revising || dirty || pending || preparing;
 
   const reviseBody = (
     <>
@@ -369,15 +561,24 @@ export function DraftsStage({
           drawer opened, which meant asking to see revisions reflowed the whole
           page and narrowed the article you were reading. Revisions drop INTO
           the rail now; the layout does not move. */}
-      <div className={`${RAIL_GRID} lg:[--rail-content:52rem] ${SHEET_CLEARANCE}`}>
+      <div className={`${RAIL_GRID} lg:[--rail-content:52rem] ${SHEET_CLEARANCE} ${editorMode ? "rail-grid-with-tools" : ""}`}>
         {/* Tray and plate. The article is the product on this screen, so it is
             seated as an object rather than boxed by a header and footer strip. */}
         {/* The plate and the line that reports on it. Wrapped, because the grid
             gives this column one child and the status now sits outside the
             article rather than in its header. */}
+        {/* PREVIEW ONLY: the editor's vertical toolbar stands here, in the empty
+            column before the article, on a wide screen. */}
+        {editorMode && (
+          <div
+            ref={setToolbarHost}
+            className="hidden lg:col-start-1 lg:row-start-1 lg:block lg:self-stretch lg:justify-self-end lg:pr-4"
+          />
+        )}
         <div className={RAIL_CONTENT}>
         <article className="cs-bezel motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-4 motion-safe:duration-500">
-          <div className="cs-bezel-core relative">
+          {/* The editor's toolbar sticks while scrolling, which a clipping box would stop. */}
+          <div className="cs-bezel-core relative" style={twoSteps ? { overflow: "visible" } : undefined}>
             {/* NO TITLE HERE. "Article draft" sat in 20px semibold at the top of
                 the plate, directly under a progress row whose current step says
                 Draft — the same fact, twice, in the two places you look first.
@@ -405,7 +606,7 @@ export function DraftsStage({
                   preview that is switched on, which is the opposite of what it
                   does. The icon shows where pressing takes you; the title says
                   it in words for anyone hovering. */}
-              <button
+              {!twoSteps && <button
                 type="button"
                 onClick={toggleEditing}
                 disabled={!draft.contentMd || draft.streaming || revising}
@@ -421,12 +622,75 @@ export function DraftsStage({
                 title={editing ? "Preview the article" : "Edit the Markdown"}
               >
                 {editing ? <Eye aria-hidden className="size-4" /> : <Pencil aria-hidden className="size-4" />}
-              </button>
+              </button>}
             </header>
 
             {draft.error && <p className="mb-2 mx-5 rounded-2xl bg-danger-soft px-4 py-3 text-sm text-danger sm:mx-8" role="alert">{draft.error}</p>}
 
-            {editing ? (
+            {twoSteps && preparing && reveal ? (
+              /* SHOW WHAT IS DONE (build session, 2026-10-15: "instead of
+                 waiting for everything done, show the section that is done").
+                 The page fills from the top: the cover, then the article down
+                 to the picture being added, which acts it out; the skeleton
+                 holds the place of the rest. Nothing can be edited until all
+                 of it is there. */
+              <>
+                <ArticleEditor
+                  preview
+                  disabled
+                  markdown={reveal.text}
+                  renderImageBlock={renderImageBlock}
+                  onChange={() => undefined}
+                  before={
+                    <>
+                      <PrepStatus writing={false} steps={prepSteps} />
+                      <CoverCard
+                        projectId={projectId}
+                        routes={coverRoutes}
+                        image={cover}
+                        locked
+                        autoWorking={autoWorking === "cover"}
+                        onImage={setCover}
+                      />
+                    </>
+                  }
+                />
+                {!reveal.complete && <PreparingSkeleton part="rest" images={reveal.restImages} />}
+              </>
+            ) : twoSteps && preparing ? (
+              <PreparingSkeleton part="all" writing={draft.streaming || !draft.contentMd} steps={prepSteps} />
+            ) : editorMode ? (
+              /* PREVIEW ONLY: the new direction's draft box IS the editor: a
+                 toolbar across the top, the cover and the article under it, the
+                 same margin on both sides (build session, 2026-10-15). */
+              <ArticleEditor
+                railHost={toolbarHost}
+                markdown={draft.contentMd}
+                renderImageBlock={renderImageBlock}
+                addImage={addImage}
+                before={
+                  <>
+                    <CoverCard
+                      projectId={projectId}
+                      routes={coverRoutes}
+                      image={cover}
+                      locked={dirty || autoWorking !== null}
+                      autoWorking={autoWorking === "cover"}
+                      onImage={setCover}
+                    />
+                    {(autoWorking || autoNote) && (
+                      <p role="status" className="mb-6 rounded-xl bg-sunken px-4 py-3 text-sm text-ink-2">
+                        {autoWorking ? "Adding pictures by the image rules…" : autoNote}
+                      </p>
+                    )}
+                  </>
+                }
+                onChange={(next) => {
+                  setDraft((current) => ({ ...current, contentMd: next }));
+                  setDirty(true);
+                }}
+              />
+            ) : editing ? (
               /* The editor takes the same right margin as the article, so the
                  textarea stops short of the button rather than running under a
                  control you cannot click through. */
@@ -444,7 +708,7 @@ export function DraftsStage({
                  utilities setting the same side resolve by emission order, not
                  by the order they are written in. */
               <div className="min-h-[38rem] max-w-[74ch] px-5 pb-16 pt-5 sm:px-8 sm:pb-24 sm:pt-8">
-                {draft.contentMd ? <Markdown>{draft.contentMd}</Markdown> : <p className="py-20 text-center text-sm text-ink-2">Preparing the article…</p>}
+                {draft.contentMd ? <Markdown renderImageBlock={draft.streaming ? undefined : renderImageBlock}>{draft.contentMd}</Markdown> : <p className="py-20 text-center text-sm text-ink-2">Preparing the article…</p>}
                 {(draft.streaming || revising) && <span className="ml-0.5 inline-block h-4 w-1.5 animate-pulse rounded-full bg-accent align-text-bottom motion-reduce:animate-none" />}
               </div>
             )}
@@ -496,7 +760,7 @@ export function DraftsStage({
                   stage's WORK rather than repeating the button underneath it,
                   which already says where the button goes. */}
               <h3 className="font-heading text-[length:var(--text-h3)] font-medium tracking-tight text-ink">
-                Add a cover image
+                {twoSteps ? "Ready to publish" : "Add a cover image"}
               </h3>
               {/* Says why the button is unavailable rather than just being grey:
                   a disabled control with no explanation reads as broken when you
@@ -523,7 +787,7 @@ export function DraftsStage({
                 disabled={cannotContinue}
                 className="cs-cta mt-4 w-full"
               >
-                Continue to images
+                {continueLabel}
               </button>
             </div>
           </section>
@@ -550,7 +814,7 @@ export function DraftsStage({
         {/* The rail's two panels, for a screen with no room for a rail. The
             action carries no label, so its name lives in `aria-label` and its
             tooltip; the sheet is titled the same as the panel it replaces. */}
-        <StageAction label="Continue to images" onClick={continueToImages} disabled={cannotContinue}>
+        <StageAction label={continueLabel} onClick={continueToImages} disabled={cannotContinue}>
           <ArrowRight aria-hidden className="size-5" />
         </StageAction>
         <StageSheet title="Revise" subtitle="One focused change at a time." flush>
@@ -573,5 +837,82 @@ export function DraftsStage({
         />
       </div>
     </StageShell>
+  );
+}
+
+/** The one line that says what is being prepared, above the page while it fills. */
+function PrepStatus({
+  writing,
+  steps,
+}: {
+  writing: boolean;
+  steps: { id: string; label: string; state: "waiting" | "working" | "done" | "empty" }[];
+}) {
+  const finished = steps.filter((step) => step.state === "done" || step.state === "empty").length;
+  const status = writing
+    ? "Writing the article…"
+    : steps.length
+      ? `Adding the pictures, ${Math.min(finished + 1, steps.length)} of ${steps.length}…`
+      : "Adding the pictures…";
+  return (
+    <p className="mb-4 flex items-center gap-2 text-sm text-ink-2" role="status" aria-live="polite">
+      <span aria-hidden className="inline-block size-2 animate-pulse rounded-full bg-accent motion-reduce:animate-none" />
+      {status}
+    </p>
+  );
+}
+
+/**
+ * PREVIEW ONLY: the first arrival at the draft, while the article is written
+ * and its first pictures are added. A skeleton of the page stands in for what
+ * is not ready yet (build session, 2026-10-15: "or you can use skeleton
+ * loader"): the whole page while the text is written (`all`), then only the
+ * part below what is done (`rest`).
+ */
+function PreparingSkeleton(
+  props:
+    | { part: "all"; writing: boolean; steps: { id: string; label: string; state: "waiting" | "working" | "done" | "empty" }[] }
+    | { part: "rest"; images: number },
+) {
+  const bar = "cs-shimmer rounded-full bg-sunken";
+  const lines = (widths: string[]) => (
+    <div className="space-y-2.5">
+      {widths.map((width, index) => (
+        <div key={index} className={`${bar} h-3.5`} style={{ width }} />
+      ))}
+    </div>
+  );
+  const section = (index: number) => (
+    <div key={index} className="space-y-7">
+      <div className={`${bar} h-5`} style={{ width: index % 2 ? "38%" : "46%" }} />
+      {lines(["100%", "94%", "98%", "62%"])}
+      <div className="cs-shimmer aspect-[16/9] w-full rounded-2xl bg-sunken" />
+      {lines(["97%", "90%", "48%"])}
+    </div>
+  );
+  if (props.part === "rest") {
+    return (
+      <div className="mx-auto w-full max-w-[46rem] px-5 pb-16 pt-0 sm:px-8 sm:pb-20" aria-busy="true">
+        <div aria-hidden className="space-y-7">
+          {Array.from({ length: props.images }, (_, index) => section(index))}
+          {lines(["100%", "92%", "96%", "58%"])}
+        </div>
+      </div>
+    );
+  }
+  const images = Math.max(1, props.steps.filter((step) => step.id !== "cover").length);
+  return (
+    <div className="mx-auto w-full max-w-[46rem] px-5 pb-16 pt-5 sm:px-8 sm:pb-20 sm:pt-8" aria-busy="true">
+      <PrepStatus writing={props.writing} steps={props.steps} />
+      <div aria-hidden className="space-y-7">
+        <div className="cs-shimmer aspect-[16/9] w-full rounded-2xl bg-sunken" />
+        <div className="space-y-3">
+          <div className={`${bar} h-8`} style={{ width: "88%" }} />
+          <div className={`${bar} h-8`} style={{ width: "54%" }} />
+        </div>
+        {lines(["96%", "72%"])}
+        {Array.from({ length: images }, (_, index) => section(index))}
+      </div>
+    </div>
   );
 }

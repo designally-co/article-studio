@@ -169,6 +169,18 @@ export type CoverCredit = {
 };
 
 export type ProjectInputs = {
+  /**
+   * PREVIEW ONLY (branch preview/article-direction-v1). Labels for the proposed
+   * article direction. Present: the article is written, illustrated and
+   * published the proposed way. Absent: the current behaviour, unchanged.
+   */
+  labels?: import("@/lib/direction/labels").ArticleLabels;
+  /**
+   * PREVIEW ONLY: when the one automatic fill of the cover and image blocks
+   * started (by the type's image rules), after the first draft. Set once;
+   * every picture after it is the editor's choice.
+   */
+  imagesAutoFilledAt?: string;
   articleMode?: import("@/lib/editorial").ArticleMode;
   editorialFormat?: import("@/lib/editorial").EditorialFormat;
   editorialPeriod?: string;
@@ -333,8 +345,25 @@ export const images = studio.table("images", {
   referenceIds: jsonb("reference_ids_json").$type<string[]>().notNull().default([]),
   storagePath: text("storage_path").notNull(),
   costUsd: numeric("cost_usd", { precision: 12, scale: 6 }).notNull().default("0"),
-  /** Article image-slot index this image fills (null = standalone/companion). */
+  /**
+   * Article image-slot index this image fills (null = standalone/companion).
+   * The proposed direction uses it for in-body image blocks: img-2 fills slot 2.
+   */
   position: integer("position"),
+  /* PREVIEW ONLY (migration 0031). Where the picture came from and who may use it,
+     for every image the proposed direction places. Null on everything else. */
+  /** The image block this fills, e.g. "img-2". */
+  blockId: text("block_id"),
+  /** find | generate | draw | upload, or "cover-find" / "cover-generate" for a cover. */
+  route: text("route"),
+  caption: text("caption"),
+  alt: text("alt"),
+  /** The credit line a reader sees, e.g. "Courtesy of Pentagram". */
+  credit: text("credit"),
+  /** The page the picture was taken from, never the file. */
+  sourceUrl: text("source_url"),
+  /** own | licensed | permission_pending | unknown. */
+  rights: text("rights").$type<import("@/lib/direction/image-routing").Rights>(),
   /** Vestigial — see the note above LogoOverlay. Always null on new rows. */
   branding: jsonb("branding_json").$type<LogoOverlay | null>(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

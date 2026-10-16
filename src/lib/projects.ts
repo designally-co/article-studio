@@ -117,7 +117,9 @@ export function coverImage(
   p: LoadedProject,
 ): LoadedProject["images"][number] | undefined {
   const chosen = p.project.inputs.coverImageId;
-  return p.images.find((image) => image.id === chosen) ?? p.images[0];
+  // An in-body image block's picture (it has a slot) is never the cover.
+  const covers = p.images.filter((image) => image.position === null);
+  return covers.find((image) => image.id === chosen) ?? covers[0];
 }
 
 /**

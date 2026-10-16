@@ -1,0 +1,830 @@
+import "server-only";
+import { and, eq, sql } from "drizzle-orm";
+import { getDb } from "@/db";
+import { imageReferences, images, type ProjectInputs } from "@/db/schema";
+import { loadProject, type LoadedProject } from "@/lib/projects";
+import { getModels, runText } from "@/lib/anthropic";
+import { logImageUsage } from "@/lib/cost";
+import { imageGenerationOptions, getImageProvider } from "@/lib/image/registry";
+import { deleteStoredImage, saveGeneratedImage } from "@/lib/image/storage";
+import { loadSharp } from "@/lib/image/sharp";
+import { findArticleSourceImages } from "@/lib/image/article-sources";
+import { findRelatedReferences } from "@/lib/image/reference-search";
+import { findReferenceImagesCore, generateImagesCore } from "./images";
+import { coverFromReferenceCore } from "./sourced-cover";
+import { generateImagePromptCore } from "./image-prompt";
+import { IMAGE_ASPECT_RATIOS, type ImageAspectRatio } from "@/lib/image/providers";
+import { projects } from "@/db/schema";
+import type { ReferenceCandidate } from "@/lib/image/reference-sources";
+import { imageSystemPromptFor } from "@/prompts/system";
+import { blockImagePromptTask, drawBriefTask, drawFigureTask } from "@/prompts/direction";
+import { finishImagePrompt } from "@/lib/image/visual-brief";
+import { isFillCancelled, throwIfCancelled } from "@/lib/pipeline/fill-cancel";
+import { parseImageBlocks, purposeFromContext, slotOf, type LocatedImageBlock } from "@/lib/direction/image-blocks";
+import {
+  AUTO_FILL_ROUTES,
+  RIGHTS_HOLD_AS_DRAFT,
+  TYPE_IMAGE_POLICY,
+  effectiveRoute,
+  isCoverSourceAllowed,
+  isRouteAllowed,
+  rightsForOrigin,
+  type BlockRoute,
+  type ImageFit,
+  type Rights,
+} from "@/lib/direction/image-routing";
+import type { ArticleLabels } from "@/lib/direction/labels";
+import { draftCreditLabel } from "./sourced-cover";
+import type { BlockFillResult, BlockImageView } from "./views";
+
+/**
+ * Filling the in-body image blocks of the proposed article direction
+ * (preview only), with no session check.
+ *
+ * Out of the stage's `"use server"` module for the usual reason: every
+ * exported async function in one is a callable endpoint, and these spend
+ * money. The block actions import them behind `requireUser()`; the autopilot
+ * imports `autoFillBlocksCore` behind its own secret.
+ *
+ * Every picture placed is a row in `images` with `position` = the block's slot
+ * (img-2 → 2), and its route, caption, alt, credit, source page and rights
+ * written beside it (migration 0031). Every fill is also logged as one line,
+ * so a trial can be read back from the server log.
+ */
+
+/**
+ * How a fill was asked for. `auto`: the first, automatic fill after the draft
+ * is written, held to the article type's image rules. Otherwise the editor
+ * asked, and may use any route (build session, 2026-10-15: "the rule of
+ * having related image is only applied to the auto generated in the first
+ * time"). `prompt`: the editor's own words for Generate or Draw. `ticket`:
+ * the browser's name for this fill, so Cancel can stop it before it saves
+ * (@/lib/pipeline/fill-cancel).
+ */
+export type FillMode = { auto?: boolean; prompt?: string; ticket?: string };
+
+type BlockContext = {
+  loaded: LoadedProject;
+  labels: ArticleLabels;
+  block: LocatedImageBlock;
+  slot: number;
+  article: string;
+  title: string;
+};
+
+async function loadBlock(projectId: string, blockId: string): Promise<BlockContext> {
+  const loaded = await loadProject(projectId);
+  if (!loaded) throw new Error("Project not found.");
+  const labels = loaded.project.inputs.labels;
+  if (!labels) throw new Error("This article has no labels, so it has no image blocks.");
+  const draft = loaded.drafts.find((d) => d.isSelected) ?? loaded.drafts[0];
+  const article = draft?.contentMd ?? "";
+  const found = parseImageBlocks(article).find((entry) => entry.id === blockId);
+  if (!found) throw new Error(`There is no image block "${blockId}" in the draft. Save the draft and try again.`);
+  // No stated purpose (a slot the editor added): read it from the article around it.
+  const block = found.purpose.trim() ? found : { ...found, purpose: purposeFromContext(article, found) };
+  const slot = slotOf(block.id);
+  if (!slot) throw new Error(`Image block "${blockId}" has no slot (use img-1 to img-3).`);
+  const title = article.match(/^#\s+(.+)$/m)?.[1]?.trim() || loaded.project.selectedTopic?.title || "Untitled";
+  return { loaded, labels, block, slot, article, title };
+}
+
+function assertRoute(ctx: BlockContext, route: BlockRoute) {
+  if (!isRouteAllowed(ctx.labels.type, route)) {
+    throw new Error(`A ${ctx.labels.type.replace("_", " ")} does not use "${route}" for body images.`);
+  }
+}
+
+function fitFor(ctx: BlockContext): ImageFit {
+  return {
+    pillar: ctx.labels.pillar,
+    type: ctx.labels.type,
+    role: ctx.block.role ?? "evidence",
+    purpose: ctx.block.purpose,
+    subject: ctx.block.searchHint,
+    narrowers: [ctx.labels.topic, ...ctx.labels.keywords],
+  };
+}
+
+const ratioOf = (width: number, height: number) => {
+  const r = width / height;
+  if (r > 1.6) return "16:9";
+  if (r > 1.2) return "3:2";
+  if (r > 0.9) return "1:1";
+  if (r > 0.7) return "4:5";
+  return "2:3";
+};
+
+export function blockImageView(row: typeof images.$inferSelect): BlockImageView {
+  return {
+    id: row.id,
+    blockId: row.blockId ?? "",
+    slot: row.position ?? 0,
+    url: `/api/images/${row.id}`,
+    route: (row.route as BlockRoute | null) ?? null,
+    caption: row.caption ?? "",
+    alt: row.alt ?? "",
+    credit: row.credit ?? "",
+    sourceUrl: row.sourceUrl ?? "",
+    rights: row.rights ?? "unknown",
+    provider: row.provider,
+    model: row.model,
+    width: row.width ?? null,
+    height: row.height ?? null,
+  };
+}
+
+/** The newest picture per block, keyed by block id. */
+export function blockImagesOf(rows: (typeof images.$inferSelect)[]): Record<string, BlockImageView> {
+  const out: Record<string, BlockImageView> = {};
+  const newestFirst = [...rows].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+  for (const row of newestFirst) {
+    if (!row.blockId || row.position === null) continue;
+    if (!out[row.blockId]) out[row.blockId] = blockImageView(row);
+  }
+  return out;
+}
+
+/** Replace whatever filled this block before with the new picture. */
+async function saveBlockImage(
+  ctx: BlockContext,
+  input: {
+    data: Buffer;
+    route: BlockRoute;
+    provider: string;
+    model: string;
+    prompt: string;
+    rights: Rights;
+    credit?: string | null;
+    sourceUrl?: string | null;
+  },
+): Promise<BlockImageView> {
+  const projectId = ctx.loaded.project.id;
+  const stored = await saveGeneratedImage({ data: input.data, mimeType: "image/png", ext: "png" });
+  const db = await getDb();
+  const previous = await db
+    .select()
+    .from(images)
+    .where(and(eq(images.projectId, projectId), eq(images.position, ctx.slot)));
+  const [row] = await db
+    .insert(images)
+    .values({
+      projectId,
+      provider: input.provider,
+      model: input.model,
+      prompt: input.prompt.slice(0, 8000),
+      aspectRatio: ratioOf(stored.width, stored.height),
+      width: stored.width,
+      height: stored.height,
+      storagePath: stored.storagePath,
+      position: ctx.slot,
+      blockId: ctx.block.id,
+      route: input.route,
+      caption: ctx.block.caption,
+      alt: ctx.block.alt,
+      credit: input.credit ?? null,
+      sourceUrl: input.sourceUrl ?? null,
+      rights: input.rights,
+    })
+    .returning();
+  // The old picture for this slot goes, file and row: one block, one picture.
+  for (const old of previous) {
+    await db.delete(images).where(eq(images.id, old.id));
+    await deleteStoredImage(old.storagePath).catch(() => false);
+  }
+  console.info(
+    `[direction] image ${JSON.stringify({
+      projectId,
+      block: ctx.block.id,
+      route: input.route,
+      sourceUrl: input.sourceUrl ?? null,
+      credit: input.credit ?? null,
+      rights: input.rights,
+    })}`,
+  );
+  return blockImageView(row);
+}
+
+/* ---------------------------------------------------------------- Find --- */
+
+/** Is this search hint a page address? Then that page is where to look. */
+function hintPage(hint: string): { label: string; url: string } | null {
+  try {
+    const url = new URL(hint.trim());
+    return url.protocol === "https:" || url.protocol === "http:" ? { label: url.hostname, url: url.toString() } : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function findBlockImageCore(projectId: string, blockId: string, mode: FillMode = {}): Promise<BlockFillResult> {
+  const ctx = await loadBlock(projectId, blockId);
+  if (mode.auto) assertRoute(ctx, "find");
+  // The rules decide where the first, automatic fill may look; the editor may look anywhere.
+  const policy = mode.auto
+    ? TYPE_IMAGE_POLICY[ctx.labels.type].body
+    : { find: ["cited_pages", "library"] as const };
+  const fit = fitFor(ctx);
+  const stats = { judged: 0, rejected: 0 };
+  const tried: string[] = [];
+  /* A case study's evidence and a resource's preview must show THE thing
+     itself, so only a picture judged to be the article's subject will do.
+     Anything else may be merely related. */
+  const strict = Boolean(mode.auto) && (ctx.block.role === "evidence" || ctx.block.role === "preview");
+  let chosen: ReferenceCandidate | null = null;
+
+  if (policy.find.includes("cited_pages")) {
+    const page = hintPage(ctx.block.searchHint);
+    tried.push(page ? `the page ${page.url}` : "the pages the article cites");
+    const found = await findArticleSourceImages(ctx.article, {
+      limit: 3,
+      exclude: new Set(),
+      projectId,
+      title: ctx.title,
+      angle: ctx.block.purpose,
+      fit,
+      pages: page ? [page] : undefined,
+      stats,
+    }).catch(() => []);
+    chosen = found.find((candidate) => candidate.match === "subject") ?? (strict ? null : (found[0] ?? null));
+    // A named page with nothing usable still leaves the article's own cited pages to try.
+    if (!chosen && page) {
+      tried.push("the pages the article cites");
+      const cited = await findArticleSourceImages(ctx.article, {
+        limit: 3,
+        exclude: new Set([page.url]),
+        projectId,
+        title: ctx.title,
+        angle: ctx.block.purpose,
+        fit,
+        stats,
+      }).catch(() => []);
+      chosen = cited.find((candidate) => candidate.match === "subject") ?? (strict ? null : (cited[0] ?? null));
+    }
+  }
+
+  throwIfCancelled(mode.ticket);
+  if (!chosen && policy.find.includes("library")) {
+    tried.push("the photo library");
+    const search = await findRelatedReferences({
+      projectId,
+      title: ctx.title,
+      angle: ctx.block.purpose,
+      article: ctx.article.slice(0, 3000),
+      seedQuery: hintPage(ctx.block.searchHint) ? ctx.block.purpose : ctx.block.searchHint || ctx.block.purpose,
+      limit: 1,
+      fit,
+    });
+    stats.judged += search.found;
+    stats.rejected += search.rejected;
+    chosen = search.candidates[0] ?? null;
+  }
+
+  throwIfCancelled(mode.ticket);
+  const log = { route: "find" as const, tried, judged: stats.judged, rejected: stats.rejected };
+  if (!chosen) {
+    console.info(`[direction] image ${JSON.stringify({ projectId, block: blockId, route: "find", empty: true, ...stats })}`);
+    return {
+      image: null,
+      note: `Nothing found in ${tried.join(", then ")} shows ${
+        hintPage(ctx.block.searchHint) ? "what this block needs" : ctx.block.searchHint || "this subject"
+      } well enough${
+        stats.rejected ? ` (${stats.rejected} picture${stats.rejected === 1 ? "" : "s"} turned down)` : ""
+      }. ${mode.auto ? "This block needs a person: upload the picture." : "Try Find again, Generate, Draw or Upload."}`,
+      log,
+    };
+  }
+
+  const credit =
+    chosen.origin === "article_source"
+      ? draftCreditLabel(chosen).replace(/^Cover image /, "Image ").replace(/^Image courtesy/, "Courtesy")
+      : chosen.attribution || draftCreditLabel(chosen).replace(/^Cover image: /, "");
+  const image = await saveBlockImage(ctx, {
+    data: chosen.data,
+    route: "find",
+    provider: chosen.origin === "article_source" ? "source" : "library",
+    model: chosen.origin,
+    prompt: `Found on ${chosen.sourceUrl}`,
+    rights: rightsForOrigin(chosen.origin),
+    credit,
+    sourceUrl: chosen.sourceUrl,
+  });
+  return { image, log };
+}
+
+/* ------------------------------------------------------------ Generate --- */
+
+/** The image prompt for a block, written from its purpose by the image model. */
+async function writeGeneratePrompt(ctx: BlockContext): Promise<string> {
+  const { image: model } = await getModels();
+  const { text } = await runText({
+    model,
+    system: imageSystemPromptFor(ctx.labels),
+    task: blockImagePromptTask({
+      title: ctx.title,
+      labels: ctx.labels,
+      purpose: ctx.block.purpose,
+      caption: ctx.block.caption,
+      searchHint: ctx.block.searchHint,
+      role: ctx.block.role ?? "mood",
+    }),
+    maxTokens: 650,
+    projectId: ctx.loaded.project.id,
+    stage: "block_image_prompt",
+  });
+  return text.trim();
+}
+
+/** What a figure should show, written from the block's purpose and the text around it. */
+async function writeDrawBrief(ctx: BlockContext): Promise<string> {
+  const { drafting: model } = await getModels();
+  const { text } = await runText({
+    model,
+    system: "You brief clean editorial figures for a design publication.",
+    task: drawBriefTask({
+      title: ctx.title,
+      labels: ctx.labels,
+      role: ctx.block.role ?? "diagram",
+      purpose: ctx.block.purpose,
+      context: contextAround(ctx.article, ctx.block),
+    }),
+    maxTokens: 400,
+    projectId: ctx.loaded.project.id,
+    stage: "block_draw_brief",
+  });
+  return text.trim().replace(/—/g, ", ");
+}
+
+/**
+ * WRITE THE PROMPT FOR ME (build session, 2026-10-15: "for generate and draw,
+ * there must be auto draft prompt function"). The words go into the box for
+ * the editor to read and change before anything is made.
+ */
+export async function draftBlockPromptCore(projectId: string, blockId: string, route: "generate" | "draw"): Promise<string> {
+  const ctx = await loadBlock(projectId, blockId);
+  return route === "generate" ? writeGeneratePrompt(ctx) : writeDrawBrief(ctx);
+}
+
+export async function generateBlockImageCore(projectId: string, blockId: string, mode: FillMode = {}): Promise<BlockFillResult> {
+  const ctx = await loadBlock(projectId, blockId);
+  if (mode.auto) assertRoute(ctx, "generate");
+  const options = await imageGenerationOptions();
+  const option = options.find(
+    (entry) => !entry.capabilities.referenceImagesRequired && entry.capabilities.aspectRatios.includes("3:2"),
+  );
+  const provider = option ? getImageProvider(option.providerId) : undefined;
+  if (!option || !provider) throw new Error("No image generator is configured (add a Fal.ai key in Settings).");
+
+  /* THE EDITOR'S OWN WORDS, when given, are the picture; otherwise the prompt is
+     written from the block's purpose. */
+  const text = mode.prompt?.trim() || (await writeGeneratePrompt(ctx));
+  throwIfCancelled(mode.ticket);
+  const prompt = finishImagePrompt(text, "illustration", false);
+  const result = await provider.generate({ prompt, aspectRatio: "3:2", referenceImages: [] }, option.keyId || undefined);
+  const first = result.images[0];
+  if (!first) throw new Error("The generator returned no image.");
+  await logImageUsage({ projectId, stage: "block_image_generate", model: provider.model, count: 1, unitPrice: provider.indicativePricePerImage });
+  throwIfCancelled(mode.ticket);
+  const image = await saveBlockImage(ctx, {
+    data: first.data,
+    route: "generate",
+    provider: provider.provider,
+    model: provider.model,
+    prompt,
+    rights: "own",
+  });
+  return { image, log: { route: "generate", tried: [provider.label], judged: 0, rejected: 0 } };
+}
+
+/* ---------------------------------------------------------------- Draw --- */
+
+/**
+ * Keep an SVG to drawing only: no scripts, no event handlers, no embedded
+ * documents or images, no links outside the file. What is left is rendered by
+ * sharp (librsvg) on the server, never shown to a browser as SVG.
+ */
+export function sanitizeSvg(raw: string): string {
+  const start = raw.indexOf("<svg");
+  const end = raw.lastIndexOf("</svg>");
+  if (start < 0 || end < 0) throw new Error("The figure did not come back as an SVG.");
+  return raw
+    .slice(start, end + "</svg>".length)
+    .replace(/<script[\s\S]*?<\/script>/gi, "")
+    .replace(/<foreignObject[\s\S]*?<\/foreignObject>/gi, "")
+    .replace(/<image\b[^>]*>(<\/image>)?/gi, "")
+    .replace(/\son[a-z]+\s*=\s*("[^"]*"|'[^']*')/gi, "")
+    .replace(/\s(?:xlink:)?href\s*=\s*("(?!#)[^"]*"|'(?!#)[^']*')/gi, "")
+    .replace(/url\(\s*['"]?(?!#)[^)]*\)/gi, "none")
+    .replace(/—/g, ", ");
+}
+
+/** The paragraphs around a block, so the figure is drawn from what the reader is reading. */
+function contextAround(article: string, block: LocatedImageBlock): string {
+  const before = article.slice(Math.max(0, block.start - 1500), block.start);
+  const after = article.slice(block.end, block.end + 600);
+  return `${before}\n[the figure goes here]\n${after}`.replace(/```image[\s\S]*?```/g, "").trim();
+}
+
+export async function drawBlockImageCore(projectId: string, blockId: string, mode: FillMode = {}): Promise<BlockFillResult> {
+  const ctx = await loadBlock(projectId, blockId);
+  if (mode.auto) assertRoute(ctx, "draw");
+  const { drafting: model } = await getModels();
+  const { text } = await runText({
+    model,
+    system: "You draw clean, correct editorial figures as SVG for a design publication. You output SVG only.",
+    task: drawFigureTask({
+      title: ctx.title,
+      labels: ctx.labels,
+      role: ctx.block.role ?? "diagram",
+      purpose: ctx.block.purpose,
+      caption: ctx.block.caption,
+      context: contextAround(ctx.article, ctx.block),
+      brief: mode.prompt?.trim() || undefined,
+    }),
+    maxTokens: 6000,
+    projectId,
+    stage: "block_draw_svg",
+  });
+  throwIfCancelled(mode.ticket);
+  const svg = sanitizeSvg(text);
+  const sharp = await loadSharp();
+  // Rendered at twice the drawing's size, then stored at the delivery width.
+  const rendered = await sharp(Buffer.from(svg), { density: 144 }).flatten({ background: "#ffffff" }).png().toBuffer();
+  /* CROPPED TO THE DRAWING, THEN AN EVEN MARGIN. A model's background does not
+     always cover its canvas (a white strip down one side), and its content is
+     not always centred. Trimming the plain edge and adding the same margin all
+     round in the figure's own background colour fixes both. */
+  const png = await (async () => {
+    try {
+      const trimmed = await sharp(rendered).trim({ threshold: 12 }).png().toBuffer();
+      const { data } = await sharp(trimmed).extract({ left: 0, top: 0, width: 1, height: 1 }).raw().toBuffer({ resolveWithObject: true });
+      const background = { r: data[0], g: data[1], b: data[2] };
+      return await sharp(trimmed).extend({ top: 64, bottom: 64, left: 64, right: 64, background }).png().toBuffer();
+    } catch {
+      return rendered;
+    }
+  })();
+  throwIfCancelled(mode.ticket);
+  const image = await saveBlockImage(ctx, {
+    data: png,
+    route: "draw",
+    provider: "svg",
+    model,
+    prompt: svg,
+    rights: "own",
+  });
+  return { image, log: { route: "draw", tried: [model], judged: 0, rejected: 0 } };
+}
+
+/* -------------------------------------------------------------- Upload --- */
+
+export async function uploadBlockImageCore(
+  projectId: string,
+  blockId: string,
+  file: { data: Buffer; name: string },
+  meta: { credit?: string; sourceUrl?: string },
+): Promise<BlockFillResult> {
+  const ctx = await loadBlock(projectId, blockId);
+  // The editor is not asked about rights (build session, 2026-10-15): an upload is recorded as their own.
+  const rights: Rights = "own";
+  const image = await saveBlockImage(ctx, {
+    data: file.data,
+    route: "upload",
+    provider: "upload",
+    model: "upload",
+    prompt: `Uploaded: ${file.name}`.slice(0, 300),
+    rights,
+    credit: meta.credit?.trim() || null,
+    sourceUrl: meta.sourceUrl?.trim() || null,
+  });
+  return { image, log: { route: "upload", tried: [], judged: 0, rejected: 0 } };
+}
+
+/* ------------------------------------------------------- Rights, remove --- */
+
+/** Remove the picture filling a block (the block itself is removed from the draft by the editor). */
+export async function clearBlockImagesCore(projectId: string, blockId: string): Promise<void> {
+  const db = await getDb();
+  const rows = await db
+    .select()
+    .from(images)
+    .where(and(eq(images.projectId, projectId), eq(images.blockId, blockId)));
+  for (const row of rows) {
+    await db.delete(images).where(eq(images.id, row.id));
+    await deleteStoredImage(row.storagePath).catch(() => false);
+  }
+}
+
+/* ------------------------------------------------------------ Autopilot --- */
+
+/**
+ * Fill what an unattended run may fill: Generate and Draw blocks only. Find
+ * and Upload blocks wait for a person, and publishing holds the article as a
+ * Hub draft while any block is empty.
+ */
+export async function autoFillBlocksCore(
+  projectId: string,
+): Promise<{ filled: string[]; waiting: string[]; failed: { blockId: string; error: string }[] }> {
+  const loaded = await loadProject(projectId);
+  const labels = loaded?.project.inputs.labels;
+  const out = { filled: [] as string[], waiting: [] as string[], failed: [] as { blockId: string; error: string }[] };
+  if (!loaded || !labels) return out;
+  const draft = loaded.drafts.find((d) => d.isSelected) ?? loaded.drafts[0];
+  const filled = blockImagesOf(loaded.images);
+  for (const block of parseImageBlocks(draft?.contentMd ?? "")) {
+    if (filled[block.id]) continue;
+    const route = effectiveRoute(labels.type, block.suggestedRoute);
+    if (!AUTO_FILL_ROUTES.includes(route)) {
+      out.waiting.push(block.id);
+      continue;
+    }
+    try {
+      const result =
+        route === "draw"
+          ? await drawBlockImageCore(projectId, block.id, { auto: true })
+          : await generateBlockImageCore(projectId, block.id, { auto: true });
+      (result.image ? out.filled : out.waiting).push(block.id);
+    } catch (error) {
+      out.failed.push({ blockId: block.id, error: error instanceof Error ? error.message : String(error) });
+    }
+  }
+  return out;
+}
+
+/* ------------------------------------------------------------- Publish --- */
+
+/**
+ * Why a labelled article may only go to the Hub as a draft: an empty block,
+ * or a picture whose rights are unknown or pending. Empty when nothing holds
+ * it. Read by publishing and shown on the Publish stage.
+ */
+export function holdAsDraftReasons(loaded: LoadedProject, inputs: ProjectInputs = loaded.project.inputs): string[] {
+  if (!inputs.labels) return [];
+  const draft = loaded.drafts.find((d) => d.isSelected) ?? loaded.drafts[0];
+  const filled = blockImagesOf(loaded.images);
+  const reasons: string[] = [];
+  for (const block of parseImageBlocks(draft?.contentMd ?? "")) {
+    const image = filled[block.id];
+    if (!image) reasons.push(`${block.id} is empty.`);
+    else if (RIGHTS_HOLD_AS_DRAFT.includes(image.rights as Rights)) {
+      reasons.push(`${block.id}: rights are ${image.rights.replace("_", " ")}.`);
+    }
+  }
+  const coverId = inputs.coverImageId;
+  const cover = loaded.images.find((image) => image.id === coverId) ?? loaded.images.find((image) => image.position === null);
+  if (cover?.rights && RIGHTS_HOLD_AS_DRAFT.includes(cover.rights)) {
+    reasons.push(`The cover's rights are ${cover.rights.replace("_", " ")}.`);
+  }
+  return reasons;
+}
+
+/* --------------------------------------------------------------- Cover --- */
+
+/*
+ * THE COVER IS PART OF THE DRAFT STAGE in the proposed direction (build
+ * session, 2026-10-15: "the cover image must be at draft stage too", "just
+ * draft and publish steps"). The same work the Image stage and the autopilot
+ * do, by the type's cover route: a case study's cover comes from its cited
+ * pages only and is never generated; commentary's never from a cited page.
+ */
+
+/** Which cover routes this article's type allows. Upload always. */
+export function coverRoutesFor(labels: ArticleLabels): BlockRoute[] {
+  const routes: BlockRoute[] = [];
+  if (isCoverSourceAllowed(labels.type, "cited_pages") || isCoverSourceAllowed(labels.type, "library")) routes.push("find");
+  if (isCoverSourceAllowed(labels.type, "generate")) routes.push("generate");
+  routes.push("upload");
+  return routes;
+}
+
+async function labelsOf(projectId: string): Promise<ArticleLabels> {
+  const loaded = await loadProject(projectId);
+  const labels = loaded?.project.inputs.labels;
+  if (!labels) throw new Error("This article has no labels.");
+  return labels;
+}
+
+async function coverView(imageId: string): Promise<BlockImageView> {
+  const db = await getDb();
+  const [row] = await db.select().from(images).where(eq(images.id, imageId)).limit(1);
+  if (!row) throw new Error("The cover was not saved.");
+  return blockImageView(row);
+}
+
+async function setCover(projectId: string, imageId: string) {
+  const db = await getDb();
+  const [row] = await db.select({ inputs: projects.inputs }).from(projects).where(eq(projects.id, projectId)).limit(1);
+  await db
+    .update(projects)
+    .set({ inputs: { ...(row?.inputs ?? {}), coverImageId: imageId }, updatedAt: new Date() })
+    .where(eq(projects.id, projectId));
+}
+
+export async function findCoverCore(projectId: string, mode: FillMode = {}): Promise<BlockFillResult> {
+  const loaded = await loadProject(projectId);
+  const labels = loaded?.project.inputs.labels;
+  if (!loaded || !labels) throw new Error("This article has no labels.");
+  if (mode.auto && !coverRoutesFor(labels).includes("find")) {
+    throw new Error(`A ${labels.type.replace("_", " ")} cover is not found online.`);
+  }
+
+  /* ROOM FOR ANOTHER SEARCH. An article keeps at most a few found pictures,
+     and every Find adds up to two. When it is nearly full, the ones no image
+     was made from are cleared, so "Find another" keeps working. */
+  const db = await getDb();
+  const usedReferences = new Set(loaded.images.flatMap((image) => image.referenceIds));
+  if (loaded.imageReferences.length >= 6) {
+    for (const reference of loaded.imageReferences) {
+      if (usedReferences.has(reference.id)) continue;
+      await db.delete(imageReferences).where(eq(imageReferences.id, reference.id));
+      await deleteStoredImage(reference.storagePath).catch(() => false);
+    }
+  }
+  const before = new Set((await loadProject(projectId))?.imageReferences.map((reference) => reference.id) ?? []);
+
+  const drafted = await generateImagePromptCore(projectId, { variationCount: 1 }).catch(() => null);
+  throwIfCancelled(mode.ticket);
+  const found = await findReferenceImagesCore(projectId, {
+    query: drafted?.brief.photoQuery ?? "",
+    limit: 2,
+    oneOfEach: true,
+    // The editor may look anywhere; the first, automatic fill follows the type.
+    anySource: !mode.auto,
+  });
+  /* ONLY WHAT THIS SEARCH FOUND. The list also holds earlier searches'
+     pictures, and taking the first of those chose the same cover again. */
+  const fresh = found.references.filter((item) => !before.has(item.id));
+  const subject = fresh.find((item) => found.subjectIds?.includes(item.id));
+  // A case study's cover must show the project itself: a merely related picture will not do.
+  const candidates =
+    mode.auto && labels.type === "case_study"
+      ? [subject]
+      : [subject ?? fresh.find((item) => item.origin === "article_source"), fresh.find((item) => item.origin === "open_license")];
+  const tried: string[] = [];
+  throwIfCancelled(mode.ticket);
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    tried.push(candidate.sourceUrl ?? candidate.name);
+    try {
+      const { image } = await coverFromReferenceCore(projectId, candidate.id);
+      return { image: await coverView(image.id), log: { route: "find", tried, judged: 0, rejected: 0 } };
+    } catch {
+      // Too small or unreadable: try the next.
+    }
+  }
+  return {
+    image: null,
+    note: `${found.note ?? "No other picture good enough for the cover was found. Try again, generate one, or upload one."}${
+      mode.auto && labels.type === "case_study" ? " A case study's cover must be the project itself: upload it." : ""
+    }`,
+    log: { route: "find", tried, judged: 0, rejected: 0 },
+  };
+}
+
+/**
+ * Remove the cover and leave the slot empty, ready for a new one (build
+ * session, 2026-10-15: "when removed, leave the empty slot to add it again").
+ * Every earlier cover of the article goes too: otherwise the newest of them
+ * would quietly become the cover again.
+ */
+export async function removeCoverCore(projectId: string): Promise<null> {
+  const loaded = await loadProject(projectId);
+  if (!loaded?.project.inputs.labels) throw new Error("This article has no labels.");
+  const db = await getDb();
+  for (const cover of loaded.images.filter((image) => image.position === null)) {
+    await db.delete(images).where(eq(images.id, cover.id));
+    await deleteStoredImage(cover.storagePath).catch(() => false);
+  }
+  await db
+    .update(projects)
+    .set({
+      inputs: sql`coalesce(${projects.inputs}, '{}'::jsonb) - 'coverImageId' - 'coverCredits'`,
+      updatedAt: new Date(),
+    })
+    .where(eq(projects.id, projectId));
+  return null;
+}
+
+/** Write the prompt for me, for the cover's Generate: the prompt without the style lines added on sending. */
+export async function draftCoverPromptCore(projectId: string): Promise<string> {
+  await labelsOf(projectId);
+  const drafted = await generateImagePromptCore(projectId, { variationCount: 1 });
+  const cut = drafted.prompt.lastIndexOf("\n\n");
+  return (cut > 0 ? drafted.prompt.slice(0, cut) : drafted.prompt).trim();
+}
+
+export async function generateCoverCore(projectId: string, mode: FillMode = {}): Promise<BlockFillResult> {
+  const loaded = await loadProject(projectId);
+  const labels = loaded?.project.inputs.labels;
+  if (!loaded || !labels) throw new Error("This article has no labels.");
+  if (mode.auto && !coverRoutesFor(labels).includes("generate")) throw new Error("A case study never uses a generated cover.");
+  const options = await imageGenerationOptions();
+  const option = options.find((entry) => !entry.capabilities.referenceImagesRequired);
+  if (!option) throw new Error("No image generator is configured (add a Fal.ai key in Settings).");
+  const own = mode.prompt?.trim();
+  throwIfCancelled(mode.ticket);
+  const drafted = own
+    ? { prompt: finishImagePrompt(own, "photograph", false), variants: [] as { prompt: string }[] }
+    : await generateImagePromptCore(projectId, { variationCount: 1 });
+  const wanted = IMAGE_ASPECT_RATIOS.find((ratio) => ratio === loaded.project.inputs.imageAspectRatio);
+  const aspectRatio: ImageAspectRatio =
+    wanted && option.capabilities.aspectRatios.includes(wanted) ? wanted : "16:9";
+  const run = await generateImagesCore(projectId, {
+    prompt: drafted.prompt,
+    optionId: option.optionId,
+    aspectRatio,
+    variationCount: 1,
+    referenceIds: [],
+    variantPrompts: drafted.variants.map((variant) => variant.prompt),
+    byEditor: !mode.auto,
+  });
+  const first = run.images[0];
+  if (!first) throw new Error(run.failureReason ?? "No cover was generated.");
+  if (isFillCancelled(mode.ticket)) {
+    // Made but not wanted: it must not become the cover by being the newest.
+    const db = await getDb();
+    for (const made of run.images) {
+      const [row] = await db.delete(images).where(eq(images.id, made.id)).returning();
+      if (row) await deleteStoredImage(row.storagePath).catch(() => false);
+    }
+    throwIfCancelled(mode.ticket);
+  }
+  await setCover(projectId, first.id);
+  return { image: await coverView(first.id), log: { route: "generate", tried: [option.label], judged: 0, rejected: 0 } };
+}
+
+export async function uploadCoverCore(projectId: string, file: { data: Buffer; name: string }): Promise<BlockFillResult> {
+  await labelsOf(projectId);
+  const stored = await saveGeneratedImage({ data: file.data, mimeType: "image/png", ext: "png" });
+  const db = await getDb();
+  const [row] = await db
+    .insert(images)
+    .values({
+      projectId,
+      provider: "upload",
+      model: "upload",
+      prompt: `Uploaded: ${file.name}`.slice(0, 300),
+      aspectRatio: ratioOf(stored.width, stored.height),
+      width: stored.width,
+      height: stored.height,
+      storagePath: stored.storagePath,
+      route: "cover-upload",
+      rights: "own",
+    })
+    .returning();
+  await setCover(projectId, row.id);
+  return { image: blockImageView(row), log: { route: "upload", tried: [], judged: 0, rejected: 0 } };
+}
+
+/* ------------------------------------------------- First, automatic fill --- */
+
+/**
+ * Claim the one automatic fill an article gets, right after its first draft.
+ * True only for the first caller: a second tab, a reload or a regenerated
+ * draft gets false, and from then on every picture is the editor's choice.
+ */
+export async function claimAutoImagesCore(projectId: string): Promise<boolean> {
+  const db = await getDb();
+  const rows = await db
+    .update(projects)
+    .set({
+      inputs: sql`coalesce(${projects.inputs}, '{}'::jsonb) || ${JSON.stringify({ imagesAutoFilledAt: new Date().toISOString() })}::jsonb`,
+      updatedAt: new Date(),
+    })
+    .where(and(eq(projects.id, projectId), sql`${projects.inputs} ->> 'imagesAutoFilledAt' is null`, sql`${projects.inputs} -> 'labels' is not null`))
+    .returning();
+  return rows.length > 0;
+}
+
+/** The cover, by the type's rule: found where the type allows, else generated where it allows. */
+export async function autoCoverCore(projectId: string): Promise<BlockFillResult> {
+  const labels = await labelsOf(projectId);
+  const routes = coverRoutesFor(labels);
+  let found: BlockFillResult | null = null;
+  if (routes.includes("find")) {
+    found = await findCoverCore(projectId, { auto: true });
+    if (found.image) return found;
+  }
+  if (routes.includes("generate")) {
+    try {
+      return await generateCoverCore(projectId, { auto: true });
+    } catch (error) {
+      return {
+        image: null,
+        note: `${found?.note ? `${found.note} ` : ""}No cover was generated: ${error instanceof Error ? error.message : String(error)}`,
+        log: { route: "generate", tried: [], judged: 0, rejected: 0 },
+      };
+    }
+  }
+  return found ?? { image: null, note: "This type's cover waits for a person.", log: { route: "upload", tried: [], judged: 0, rejected: 0 } };
+}
+
+/** One body block, by the type's rule (its suggested route, held to what the type allows). */
+export async function autoBlockCore(projectId: string, blockId: string): Promise<BlockFillResult> {
+  const ctx = await loadBlock(projectId, blockId);
+  const route = effectiveRoute(ctx.labels.type, ctx.block.suggestedRoute);
+  if (route === "find") return findBlockImageCore(projectId, blockId, { auto: true });
+  if (route === "draw") return drawBlockImageCore(projectId, blockId, { auto: true });
+  if (route === "generate") return generateBlockImageCore(projectId, blockId, { auto: true });
+  return { image: null, note: "This picture waits for a person: upload it.", log: { route: "upload", tried: [], judged: 0, rejected: 0 } };
+}

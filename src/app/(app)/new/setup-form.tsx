@@ -7,7 +7,9 @@ import { Button } from "@/components/ui/button";
 import { PageHeading } from "@/components/page-heading";
 import { PageBar, PAGE_ACTION_BUTTON_QUIET } from "@/components/page-bar";
 import OrbitingCirclesGlobe from "@/components/ui/orbiting-circles-02";
-import { createProjectAction, inferArticleSetupAction } from "./actions";
+import { createProjectAction, inferArticleSetupAction, proposeLabelsAction } from "./actions";
+import { LabelsDialog } from "./labels-dialog";
+import type { ArticleLabels } from "@/lib/direction/labels";
 import { streamNdjson } from "@/lib/ndjson-client";
 import { PillarDirectionPicker, pillarIcon } from "./pillar-direction-picker";
 import type { TopicIdea } from "@/lib/pipeline/views";
@@ -46,6 +48,16 @@ export function SetupForm({ pillars, anthropicReady }: { pillars: PillarGroup[];
   // the same thing rather than silently widening to the whole territory.
   const [ideasPillar, setIdeasPillar] = useState<PillarGroup | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /* PREVIEW ONLY (proposed article direction). On: the article is created with
+     labels, confirmed in a dialog. Off: the current behaviour, unchanged. */
+  const [directionPreview, setDirectionPreview] = useState(false);
+  const [labelling, setLabelling] = useState<{
+    setup: { inputKind: "topic" | "brief"; directionId: string; directionName: string; workingTitle: string };
+    topic?: TopicIdea;
+    text: string;
+    labels: ArticleLabels;
+    note?: string;
+  } | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
 
@@ -144,6 +156,26 @@ export function SetupForm({ pillars, anthropicReady }: { pillars: PillarGroup[];
           }
         : await inferArticleSetupAction({ text, categoryId: selection.directionId || undefined });
 
+      if (directionPreview) {
+        // Propose labels, then wait for the editor to confirm them in the dialog.
+        const proposal = await proposeLabelsAction({ text, directionName: setup.directionName });
+        setLabelling({ setup, topic, text, labels: proposal.labels, note: proposal.note });
+        return;
+      }
+      await create(setup, topic, text);
+    } catch (reason) {
+      setPending(false);
+      setPickerOpen(true);
+      setError(reason instanceof Error ? reason.message : "Could not create the article. Choose a direction and try again.");
+    }
+  }
+
+  async function create(
+    setup: { inputKind: "topic" | "brief"; directionId: string; workingTitle: string },
+    topic: TopicIdea | undefined,
+    text: string,
+    labels?: ArticleLabels,
+  ) {
       const data = new FormData();
       data.set("articleMode", "editorial");
       data.set("language", "en");
@@ -151,6 +183,7 @@ export function SetupForm({ pillars, anthropicReady }: { pillars: PillarGroup[];
       data.set("inputKind", setup.inputKind);
       data.set("workingTitle", setup.workingTitle);
       data.set("categoryId", setup.directionId);
+      if (labels) data.set("labels", JSON.stringify(labels));
       if (topic) {
         data.set("chosenTopic", topic.title);
         data.set("chosenAngle", topic.angle || "");
@@ -162,12 +195,27 @@ export function SetupForm({ pillars, anthropicReady }: { pillars: PillarGroup[];
       if (!created.ok) throw new Error(created.message);
       // Still pending: the button keeps its spinner until the article page opens.
       router.push(created.href);
-    } catch (reason) {
-      setPending(false);
-      setPickerOpen(true);
-      setError(reason instanceof Error ? reason.message : "Could not create the article. Choose a direction and try again.");
-    }
   }
+
+  const labelsDialog = labelling ? (
+    <LabelsDialog
+      open
+      initial={labelling.labels}
+      note={labelling.note}
+      onCancel={() => {
+        setLabelling(null);
+        setPending(false);
+      }}
+      onConfirm={(labels) => {
+        const current = labelling;
+        setLabelling(null);
+        void create(current.setup, current.topic, current.text, labels).catch((reason) => {
+          setPending(false);
+          setError(reason instanceof Error ? reason.message : "Could not create the article.");
+        });
+      }}
+    />
+  ) : null;
 
   /* THE LIST IS A PAGE, NOT A STATE OF THE COMPOSER. It used to render inside
      the composer's column with a heading of its own invention, so it was the
@@ -289,6 +337,7 @@ export function SetupForm({ pillars, anthropicReady }: { pillars: PillarGroup[];
             </Button>
           </div>
         </div>
+        {labelsDialog}
       </div>
     );
   }
@@ -637,6 +686,17 @@ export function SetupForm({ pillars, anthropicReady }: { pillars: PillarGroup[];
                   written. With nothing written it is a quiet grey disc that
                   cannot be pressed; the moment there is a topic it takes the
                   accent, which is the signal that it now goes somewhere. */}
+              {/* PREVIEW ONLY: write this article the proposed way, with labels. */}
+              <button
+                type="button"
+                aria-pressed={directionPreview}
+                onClick={() => setDirectionPreview((on) => !on)}
+                className={`ml-auto mr-2 inline-flex min-h-10 items-center rounded-full px-3 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50 ${
+                  directionPreview ? "bg-ink text-surface" : "bg-chrome text-ink-2 hover:bg-chrome-active hover:text-ink"
+                }`}
+              >
+                {directionPreview ? "New direction: on" : "New direction (preview)"}
+              </button>
               <button
                 type="submit"
                 disabled={pending || !hasInput}
@@ -705,6 +765,7 @@ export function SetupForm({ pillars, anthropicReady }: { pillars: PillarGroup[];
 
           </div>
       </div>
+      {labelsDialog}
     </form>
   );
 }

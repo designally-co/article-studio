@@ -95,4 +95,27 @@ export async function logUsage(params: {
   return { tokensIn, tokensOut, costUsd };
 }
 
+/**
+ * Record an image generation in the usage log, at the provider's indicative
+ * price per image. Fal's responses carry no cost, so without this a trial's
+ * spend in `api_usage_log` would leave out every picture.
+ */
+export async function logImageUsage(params: {
+  projectId: string | null;
+  stage: string;
+  model: string;
+  count: number;
+  unitPrice: number;
+}): Promise<number> {
+  const costUsd = params.count * params.unitPrice;
+  const db = await getDb();
+  await db.insert(apiUsageLog).values({
+    projectId: params.projectId,
+    stage: params.stage,
+    model: params.model,
+    costUsd: costUsd.toFixed(6),
+  });
+  return costUsd;
+}
+
 export { fmtUsd } from "./format";

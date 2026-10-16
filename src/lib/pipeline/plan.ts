@@ -132,6 +132,7 @@ export async function preparePlanCore(
     seedSources: loaded.project.selectedTopic?.researchSources,
     pillarName: planPillar?.name,
     pillarPurpose: planPillar?.purpose,
+    labels: ctx.inputs.labels,
   });
   const schema = {
       type: "object",

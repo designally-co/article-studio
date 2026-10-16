@@ -70,4 +70,37 @@ export type PublishToHubResult = {
    * decision to carry on is right; throwing the reason away was not.
    */
   coverWarning?: string;
+  /**
+   * PREVIEW ONLY (proposed article direction): why the article went to the Hub
+   * as a draft although "published" was asked for. An empty image block, or a
+   * picture whose rights are unknown or pending, holds it back.
+   */
+  heldAsDraft?: string[];
+  /** PREVIEW ONLY: body images that could not be placed, and why. */
+  bodyImageWarnings?: string[];
+};
+
+/** PREVIEW ONLY: one picture filling an in-body image block (proposed article direction). */
+export type BlockImageView = {
+  id: string;
+  blockId: string;
+  slot: number;
+  url: string;
+  route: "find" | "generate" | "draw" | "upload" | null;
+  caption: string;
+  alt: string;
+  credit: string;
+  sourceUrl: string;
+  rights: string;
+  provider: string;
+  model: string;
+  width: number | null;
+  height: number | null;
+};
+
+/** What filling one block did: the picture, or why there is none, and what was tried. */
+export type BlockFillResult = {
+  image: BlockImageView | null;
+  note?: string;
+  log: { route: "find" | "generate" | "draw" | "upload"; tried: string[]; judged: number; rejected: number };
 };

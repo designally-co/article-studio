@@ -1,4 +1,5 @@
 import "server-only";
+import type { ImageFit } from "@/lib/direction/image-routing";
 import { getModels, runJson, type PromptImage } from "@/lib/anthropic";
 import { IMAGE_SYSTEM_PROMPT } from "@/prompts/system";
 import { referenceJudgeTask, referenceSearchPlanTask } from "@/prompts/tasks";
@@ -89,6 +90,8 @@ export async function planReferenceSearch(params: {
   angle?: string;
   article?: string;
   seedQuery?: string;
+  /** Preview of the proposed direction: what this picture is for. */
+  fit?: ImageFit | null;
 }): Promise<ReferenceSearchPlan> {
   const { research } = await getModels();
   const { data } = await runJson<ReferenceSearchPlan>({
@@ -99,6 +102,7 @@ export async function planReferenceSearch(params: {
       angle: params.angle,
       article: params.article,
       seedQuery: clean(params.seedQuery, 80) || undefined,
+      fit: params.fit,
     }),
     schema: {
       type: "object",
@@ -165,6 +169,7 @@ async function judgeHits(params: {
   plan: ReferenceSearchPlan;
   hits: ReferenceHit[];
   previews: PromptImage[];
+  fit?: ImageFit | null;
 }): Promise<Verdict[]> {
   const { research } = await getModels();
   const { data } = await runJson<{ verdicts: Verdict[] }>({
@@ -179,6 +184,7 @@ async function judgeHits(params: {
         .map((query) => query.text),
       avoid: params.plan.avoid,
       captions: params.hits.map((hit) => hit.caption),
+      fit: params.fit,
     }),
     images: params.previews,
     schema: {
@@ -236,6 +242,8 @@ export async function findRelatedReferences(params: {
   limit: number;
   /** Other articles' covers, by `pictureHash`: not offered again. */
   avoid?: string[];
+  /** Preview of the proposed direction: what this picture is for. */
+  fit?: ImageFit | null;
 }): Promise<RelatedReferenceSearch> {
   const result: RelatedReferenceSearch = {
     candidates: [],
@@ -328,6 +336,7 @@ export async function findRelatedReferences(params: {
         plan,
         hits: visible.map((entry) => entry.hit),
         previews: visible.map((entry) => entry.preview),
+        fit: params.fit,
       });
       result.judged = true;
       const best = visible.filter((_, index) => verdicts[index] === "best").map((entry) => entry.hit);

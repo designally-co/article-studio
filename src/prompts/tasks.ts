@@ -1,14 +1,23 @@
 import type { Language } from "@/db/schema";
 import { EDITORIAL_SCOPE_TEXT } from "@/lib/designally-strategy";
-import { IMAGE_DIRECTION, IMAGE_RULES } from "@/lib/image/visual-brief";
+import { imageDirectionFor, imageRulesFor } from "@/lib/image/visual-brief";
+import { PILLAR_NAMES, TYPE_NAMES, type ArticleLabels } from "@/lib/direction/labels";
+import { directionPlanRequirements, imageFitBlock } from "./direction";
+import type { ImageFit } from "@/lib/direction/image-routing";
 
-/** The direction, stated identically wherever it is needed. */
-const visualDirectionBlock = (): string =>
-  [
-    `Visual direction: ${IMAGE_DIRECTION.name} — ${IMAGE_DIRECTION.summary}`,
+/**
+ * The direction, stated identically wherever it is needed. A labelled article
+ * (preview of the proposed direction) gets its pillar's style instead of the
+ * creative-studio world.
+ */
+const visualDirectionBlock = (labels?: ArticleLabels | null): string => {
+  const direction = imageDirectionFor(labels);
+  return [
+    `Visual direction: ${direction.name} — ${direction.summary}`,
     "",
-    ...IMAGE_RULES.map((rule) => `- ${rule}`),
+    ...imageRulesFor(labels).map((rule) => `- ${rule}`),
   ].join("\n");
+};
 
 /** Task layer — stage-specific instructions. Versioned per template. */
 export const TASKS_VERSION = "tasks@3.2.0";
@@ -45,12 +54,23 @@ export function editorialArticlePlanTask(params: {
   seedSources?: { name: string; url: string }[];
   pillarName?: string;
   pillarPurpose?: string;
+  /** Preview of the proposed direction: the labels replace the old pillar and the section count. */
+  labels?: ArticleLabels;
 }): string {
+  const labels = params.labels;
+  const pillarLine = labels
+    ? `${PILLAR_NAMES[labels.pillar]} (${TYPE_NAMES[labels.type]})`
+    : `${params.pillarName || "—"}${params.pillarPurpose ? ` — ${params.pillarPurpose}` : ""}`;
+  const shapeLine = labels
+    ? `${directionPlanRequirements(labels)}
+
+Respond as JSON with a working title, concise introduction angle, the sections the plan above asks for with specific evidence-led points, 3–8 reliable sources, and an empty CTA.`
+    : `Respond as JSON with a working title, concise introduction angle, 4–8 purposeful sections with specific evidence-led points, 4–10 reliable sources, and an empty CTA unless the subject genuinely needs a useful next step.`;
   return `## Task: research and plan one creative-industry article
 Research the current subject using reliable sources, prioritizing official creator, product, foundry, studio, project, and documentation pages. Produce a concise article plan that contains enough verified detail for a writer to create the complete article without a separate candidate or curation step.
 
 Topic: ${params.topic}
-Content pillar: ${params.pillarName || "—"}${params.pillarPurpose ? ` — ${params.pillarPurpose}` : ""}
+Content pillar: ${pillarLine}
 Brief: ${params.brief || "None"}
 Format: ${params.format || "Choose the most useful editorial structure"}
 Period: ${params.period || "Current / not fixed"}
@@ -66,7 +86,7 @@ Requirements:
 - Do not turn the subject into business advice or a Designally sales message.
 - Every source must be the specific page about the specific thing it supports: the studio's or brand's own case study or project page, the foundry's page for the typeface, the maker's own announcement, or the article that reports that specific development. Prefer the maker's own page over coverage of it. Never cite a homepage, a section or listing page (a /work, /projects, /blog, /news or /articles index, a category or tag page), or a search results page.
 
-Respond as JSON with a working title, concise introduction angle, 4–8 purposeful sections with specific evidence-led points, 4–10 reliable sources, and an empty CTA unless the subject genuinely needs a useful next step.`;
+${shapeLine}`;
 }
 
 export function topicsTask(params: {
@@ -207,11 +227,12 @@ export function imagePromptTask(params: {
   variantCount: number;
   siblingScenes: string[];
   hasReferenceImage: boolean;
+  labels?: ArticleLabels | null;
 }): string {
   const drawn = params.medium === "illustration";
   return `## Task: write an image prompt for one ${drawn ? "editorial illustration" : "photograph"}
 
-${visualDirectionBlock()}
+${visualDirectionBlock(params.labels)}
 
 ${
   drawn
@@ -257,10 +278,11 @@ export function articleVisualBriefTask(params: {
   article: string;
   hasReferenceImage: boolean;
   variantCount: number;
+  labels?: ArticleLabels | null;
 }): string {
   return `## Task: decide what picture this article should carry
 
-${visualDirectionBlock()}
+${visualDirectionBlock(params.labels)}
 
 ${
   params.hasReferenceImage
@@ -297,6 +319,7 @@ export function referenceSearchPlanTask(params: {
   angle?: string;
   article?: string;
   seedQuery?: string;
+  fit?: ImageFit | null;
 }): string {
   return `## Task: plan a stock-photo search for this article's reference photograph
 
@@ -317,7 +340,7 @@ ${
 }
 Title: ${params.title}${params.angle ? `\nAngle: ${params.angle}` : ""}${
     params.article ? `\n\nOpening of the article:\n---\n${params.article}\n---` : ""
-  }`;
+  }${imageFitBlock(params.fit, "search")}`;
 }
 
 export function referenceJudgeTask(params: {
@@ -327,6 +350,7 @@ export function referenceJudgeTask(params: {
   acceptable: string[];
   avoid: string[];
   captions: string[];
+  fit?: ImageFit | null;
 }): string {
   const quoted = (items: string[]) => items.map((item) => `"${item}"`).join(", ");
   return `## Task: judge which search results can serve as this article's reference photograph
@@ -342,6 +366,7 @@ Give every candidate exactly one verdict:
 - \`reject\`: anything else. In particular a literal reading of the topic's words that belongs to a different world (${quoted(params.avoid) || "none named"}), a generic stock cliché — above all the generic desk: a laptop, a coffee cup, a notebook or a plant on a wooden table, unless the article is about that very thing — a picture whose connection to the article needs explaining, a logo or wordmark, or a picture that is mostly readable text.
 
 Related is enough; it does not have to match the article exactly. But if you cannot say in one short sentence how a picture belongs to this article's world, reject it.
+${imageFitBlock(params.fit, "judge")}
 
 Library captions, for context only:
 ${params.captions.map((caption, index) => `${index + 1}. ${caption || "(no caption)"}`).join("\n")}`;
@@ -352,6 +377,7 @@ export function sourceImageJudgeTask(params: {
   angle?: string;
   opening: string;
   pages: string[];
+  fit?: ImageFit | null;
 }): string {
   return `## Task: judge pictures taken from the pages this article cites
 
@@ -368,6 +394,7 @@ Give every candidate exactly one verdict:
 - \`reject\`: anything else. ALWAYS reject a photograph whose main subject is a person's face or upper body — an author, contributor, staff or speaker headshot, a portrait, a team photo — whoever it may be. Also reject logos and wordmarks on their own, advertising, buttons and interface chrome, thumbnails of other articles, and pictures that are mostly readable text.
 
 Be strict with \`subject\`: it means the picture could run as this article's cover because it shows exactly what the article is about. When unsure between \`subject\` and \`related\`, choose \`related\`.
+${imageFitBlock(params.fit, "judge")}
 
 The page each picture came from, for context only:
 ${params.pages.map((page, index) => `${index + 1}. ${page}`).join("\n")}`;
