@@ -1731,3 +1731,12 @@ main:has(.cs-create-page),
   background: #c73f29; /* the orange that is legal as a mark on a light ground */
   clip-path: inset(0 0 0 73.79%);
 }
+
+/* The wordmark in the flat mark's two colours — see `Wordmark` in mark.tsx. */
+.dwordmark {
+  display: block;
+  flex: none;
+  height: auto;
+  color: #1b1d23; /* --charcoal-900, the D's */
+  --wordmark-dot: #c73f29; /* the stop's */
+}
