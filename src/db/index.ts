@@ -84,10 +84,14 @@ function create(): Cache {
     // Keep the per-instance pool small: every serverless worker creates its own
     // client, and postgres-js defaults to max: 10, so a handful of concurrent
     // workers can exhaust the pooler and fail with EMAXCONNSESSION. A low max
-    // plus a short idle timeout lets connections be recycled quickly.
+    // plus a bounded idle timeout keeps genuinely unused connections recyclable.
+    // The NAS health check runs every 30 seconds. A 20-second idle timeout
+    // closed the connection between checks, repeating TLS/authentication and
+    // postgres-js type discovery on every check. Keep it across those checks;
+    // max remains 3 and the driver's normal maximum lifetime still applies.
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const postgres = require("postgres") as typeof import("postgres");
-    const client = postgres(url, { prepare: false, max: 3, idle_timeout: 20 });
+    const client = postgres(url, { prepare: false, max: 3, idle_timeout: 120 });
     const db = drizzlePostgres(client, { schema });
 
     // Every serverless cold start would otherwise run the full migrator (its
