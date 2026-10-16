@@ -129,6 +129,11 @@ jobs:
           done
           node .github/scripts/check-health.mjs health.json "$COMMIT"
 
+      - name: Health checks reuse a database connection
+        run: |
+          docker cp .github/scripts/check-connection-reuse.mjs smoke:/tmp/check-connection-reuse.mjs
+          docker exec smoke node /tmp/check-connection-reuse.mjs
+
       - name: Server log on failure
         if: failure()
         run: docker logs smoke 2>&1 | tail -80 || true
